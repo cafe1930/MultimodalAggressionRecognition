@@ -1,0 +1,27 @@
+# exclude all files in __pycache__
+__pycache__/
+# exclude all *.bmp, *.jpg, *.png, files
+*.bpm
+*.jpg
+*.jpeg
+*.png
+
+
+*.mpg
+*.avi
+*.mpeg
+*.pickle
+*.pkl
+*.pth
+*.tar
+*.mp4
+*.zip
+
+
+# exclude all ipynb checkpoints
+.ipynb_checkpoints/
+.spyproject/
+.vscode
+
+# exclude .DS_Store
+.DS_store
