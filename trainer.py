@@ -20,6 +20,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+
 class TorchSupervisedTrainer:
     def __init__(
         self,
@@ -30,8 +32,8 @@ class TorchSupervisedTrainer:
         metrics_dict: dict, # словарь с функциями, вычисляющими метрики
         metrics_to_display: list, # список метрик выводимых на экран в ходе обучения
         device: torch.device,
-        criterion, # оптимизационная функция
-        optimizers_list: list, # список всех используемых алгоритмов оптимизации
+        criterion,
+        optimizers_list: list, # список всех возможных оптимизаторов
         lr_schedulers_list=[None], # список всех возможных планировщиков скорости обучения, по умолчанию, без планировщиков
         saving_dir = 'saving_dir',
         checkpoint_criterion='loss'):
@@ -126,7 +128,6 @@ class TorchSupervisedTrainer:
         # 5. Обновление весов для всех задействованных оптимизаторов
         for opt in self.optimizers_list:
             opt.step()
-            
         #self.optimizer.step()
 
         # Вычисление суммарной ошибки на батче
@@ -447,6 +448,98 @@ class TorchSupervisedTrainer:
 
 
 
+class SegmentationTrainer(TorchSupervisedTrainer):
+    class_names_dict = {
+        0: 'Не размечено',
+        1: 'Пахотные земли (Озимые поля)',
+        2: 'Залежные земли ИЛИ Сенокос',
+        3: 'Залежные земли (кустарники)',
+        4: 'Залежные земли (деревья)',
+        5: 'Неиспользуемые участки, неудобья',
+        6: 'Дороги',
+        7: 'Области электропередач',
+        8: 'Лесополосы',
+        9: 'Заболоченные участки',
+        10: 'Водные объекты',
+        11: 'Площадь около строений',
+        12: 'Строения',
+        13: 'Прочие объекты (кладбище)'
+        }
 
-if __name__ == '__main__':
-    pass
+    classes_list = [key for key in class_names_dict.keys()]
+    # создаем палитру
+    palette = ['{:06X}'.format(i) for i in range(0, 16777215, 16777215//14)]
+    palette = [(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)) for s in palette]
+
+
+    def compute_batch_results(self, batch_results):
+        '''
+        ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
+        В случае сегментации НАДО дополнително обрабатывать выходы
+        '''
+        true, pred = batch_results['true'].reshape(-1), batch_results['pred'].reshape(-1)
+        #print('DEBUG!')
+        #print(true, pred)
+        ret_results = {}
+        ret_results['loss'] = batch_results['loss']
+        ret_results['confusion_matrix'] = self.metrics_dict['confusion_matrix'](true, pred)
+
+        return ret_results
+
+    def compute_epoch_results(self, epoch_results_list, mode):
+        '''
+        ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
+        Здесь мы 'парсим' данные, полученные в ходе обучения или тестирования
+        '''
+
+        if mode =='train':
+            dataset_size = self.train_samples_num
+        elif mode == 'test':
+            dataset_size = self.test_samples_num
+        else:
+            raise TypeError('mode should be either \'train\' or \'test\'')
+
+        # process metrics
+        cummulative_loss = 0
+        cumulative_confusion = None
+        # В цикле накапливаем значения всех метрик
+        for batch_results in epoch_results_list:
+            cummulative_loss += batch_results['loss']
+            try:
+                cumulative_confusion += batch_results['confusion_matrix']
+            except TypeError:
+                cumulative_confusion = batch_results['confusion_matrix']      
+        
+        #print(cummulative_loss)
+        loss = cummulative_loss/dataset_size
+        # Строка для вывода на экран
+        # Словарь, который мы будем добавлять в лог
+        log_results_dict = {}
+        log_results_dict['loss'] = loss
+        log_results_dict['confusion_matrix'] = cumulative_confusion
+
+        #log_results_dict['loss'] = self.compute_epoch_loss()
+
+        for metric_name in self.metrics_dict.keys():
+            
+            if not (metric_name.lower() == 'loss' or metric_name.lower() == 'confusion_matrix'):
+                #print(metric_name)
+                metric = self.metrics_dict[metric_name]
+                if type(metric) is dict:
+                    metric_func = metric['metric']
+                    metric_kwargs = metric['kwargs']
+                else:
+                    metric_func = metric
+                    metric_kwargs = {}
+                # вычисляем метрику
+                metric_value = metric_func(cumulative_confusion, **metric_kwargs)
+                # добавляем метрику в словарь
+                log_results_dict[metric_name] = metric_value
+
+        return log_results_dict
+
+    def draw_masks_on_images(self, path_to_save, model_size):
+        '''
+        Пока реализовано только для обучающего/тестового набора
+        '''
+        raise NotImplementedError

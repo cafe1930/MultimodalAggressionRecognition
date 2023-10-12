@@ -15,7 +15,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         self.files_list = []
 
     def read_video(self):
-        
+        pass
 
     def get_files_list(self):
         pass
