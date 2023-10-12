@@ -219,7 +219,7 @@ class TorchSupervisedTrainer:
     def compute_batch_results(self, batch_results):
         '''
         ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
-        В случае классификации не очень важно обрабатывать дополнително обрабатывать выходы
+        В случае классификации не очень важно дополнително обрабатывать выходы
         '''
         return batch_results
 
