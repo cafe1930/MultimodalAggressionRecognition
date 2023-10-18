@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=8,
+        batch_size=32,
         shuffle=True, # Меняем на каждой эпохе порядок следования файлов
         num_workers=0
         #pin_memory=True
