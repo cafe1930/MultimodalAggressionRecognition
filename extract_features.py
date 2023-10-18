@@ -16,16 +16,15 @@ from datasets import NumpyVideoExtractorDataset
 from models import R3D_extractor
 
 
-
-
 if __name__ == '__main__':
-    start_ep = 0
-    finish_ep = 200
+    start_ep = 500
+    finish_ep = 750
 
     extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
     extractor.eval()
 
-    paths_to_video_npy_list = glob.glob(r'I:\AVABOS\trash_to_train_on_video_numpy\*.npy')
+    #paths_to_video_npy_list = glob.glob(r'I:\AVABOS\trash_to_train_on_video_numpy\*.npy')
+    paths_to_video_npy_list = glob.glob(r'/home/ubuntu/DATA/trash_to_train_on_video_numpy/*.npy')
     train_videos_list, test_videos_list = model_selection.train_test_split(paths_to_video_npy_list, test_size=0.3, random_state=1)
     train_transforms = v2.Compose([
         v2.RandomHorizontalFlip(p=0.5),
@@ -70,15 +69,16 @@ if __name__ == '__main__':
 
     #for idx in tqdm(range(len(train_dataset))):
     #    label, data = train_dataset[idx]
+
     
-    path_to_save_test = r'I:\AVABOS\video_squences_r3d\test'
-    os.makedirs(path_to_save_test, exist_ok=True)
-    for labels, data in tqdm(test_dataloader):
-        with torch.inference_mode():
-            results = extractor(data)
-        for label, features_seq in zip(labels, results):
-            path_to_save = os.path.join(path_to_save_test, label)
-            np.save(path_to_save, features_seq)
+    #path_to_save_test = r'I:\AVABOS\video_squences_r3d\test'
+    #os.makedirs(path_to_save_test, exist_ok=True)
+    #for labels, data in tqdm(test_dataloader):
+    #    with torch.inference_mode():
+    #        results = extractor(data)
+    #    for label, features_seq in zip(labels, results):
+    #        path_to_save = os.path.join(path_to_save_test, label)
+    #        np.save(path_to_save, features_seq)
 
     print('----------------')
     print('Test sample DONE')
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     
     for epoch_idx in range(start_ep, finish_ep):
         print(f'Epoch # {epoch_idx} of {finish_ep} epochs')
-        path_to_save_train = os.path.join(r'I:\AVABOS\video_squences_r3d\train', str(epoch_idx))
+        path_to_save_train = os.path.join(r'/home/ubuntu/DATA/video_squences_r3d/train', str(epoch_idx))
         os.makedirs(path_to_save_train, exist_ok=True)
         for labels, data in tqdm(train_dataloader):
             with torch.inference_mode():
