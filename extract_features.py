@@ -24,8 +24,17 @@ if __name__ == '__main__':
     extractor.eval()
 
     #paths_to_video_npy_list = glob.glob(r'I:\AVABOS\trash_to_train_on_video_numpy\*.npy')
+    # read names from file due to their order is generated in Windows
+    with open('train_names.txt', 'r') as fd:
+        train_names = fd.read()
+    train_names = train_names.split('\n')
+    
     paths_to_video_npy_list = glob.glob(r'/home/ubuntu/DATA/trash_to_train_on_video_numpy/*.npy')
+
     train_videos_list, test_videos_list = model_selection.train_test_split(paths_to_video_npy_list, test_size=0.3, random_state=1)
+
+    train_videos_list = [os.path.join('/home/ubuntu/DATA/trash_to_train_on_video_numpy', train_name) for train_name in train_names]
+
     train_transforms = v2.Compose([
         v2.RandomHorizontalFlip(p=0.5),
         v2.RandomAffine(degrees=20, translate=(0.1, 0.3), scale=(0.6, 1.1), shear=10),
@@ -80,9 +89,9 @@ if __name__ == '__main__':
     #        path_to_save = os.path.join(path_to_save_test, label)
     #        np.save(path_to_save, features_seq)
 
-    print('----------------')
-    print('Test sample DONE')
-    print('----------------')
+    #print('----------------')
+    #print('Test sample DONE')
+    #print('----------------')
     
     for epoch_idx in range(start_ep, finish_ep):
         print(f'Epoch # {epoch_idx} of {finish_ep} epochs')
