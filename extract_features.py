@@ -17,10 +17,11 @@ from models import R3D_extractor, Swin3d_T_extractor
 
 
 if __name__ == '__main__':
-    start_ep = 0
+    start_ep = 4
     finish_ep = 1000
     
-    extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
+    model_name = 'swin3dt'
+    #extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
     extractor = Swin3d_T_extractor(frame_num=304, window_size=16).cuda()
     extractor.eval()
 
@@ -29,12 +30,15 @@ if __name__ == '__main__':
     with open('train_names.txt', 'r') as fd:
         train_names = fd.read()
     train_names = train_names.split('\n')
-    
-    paths_to_video_npy_list = glob.glob(r'/home/aggr/mikhail_u/DATA/trash_to_train_on_video_numpy/*.npy')
 
+    path_to_dataset_root = r'/home/aggr/mikhail_u/DATA'
+    path_to_npy_videos = os.path.join(path_to_dataset_root, 'trash_to_train_on_video_numpy')
+
+    paths_to_video_npy_list = glob.glob(os.path.join(path_to_npy_videos, '*.npy'))
+                                        
     train_videos_list, test_videos_list = model_selection.train_test_split(paths_to_video_npy_list, test_size=0.3, random_state=1)
 
-    train_videos_list = [os.path.join('/home/aggr/mikhail_u/DATA/trash_to_train_on_video_numpy', train_name) for train_name in train_names]
+    train_videos_list = [os.path.join(path_to_npy_videos, train_name) for train_name in train_names]
 
     train_transforms = v2.Compose([
         v2.RandomHorizontalFlip(p=0.5),
@@ -63,7 +67,7 @@ if __name__ == '__main__':
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=32,
+        batch_size=16,
         shuffle=True, # Меняем на каждой эпохе порядок следования файлов
         num_workers=0
         #pin_memory=True
@@ -78,7 +82,7 @@ if __name__ == '__main__':
     )
 
     
-    #path_to_save_test = r'I:\AVABOS\video_squences_r3d\test'
+    path_to_save_test = os.path.join(path_to_dataset_root, f'video_sequences_{model_name}', 'test')
     #os.makedirs(path_to_save_test, exist_ok=True)
     #for labels, data in tqdm(test_dataloader):
     #    with torch.inference_mode():
@@ -93,7 +97,9 @@ if __name__ == '__main__':
     
     for epoch_idx in range(start_ep, finish_ep):
         print(f'Epoch # {epoch_idx} of {finish_ep} epochs')
-        path_to_save_train = os.path.join(r'/home/aggr/mikhail_u/DATA/video_squences_swin3d_t/train', str(epoch_idx))
+        
+        #path_to_save_train = os.path.join(r'/home/aggr/mikhail_u/DATA/video_squences_swin3d_t/train', str(epoch_idx))
+        path_to_save_train = os.path.join(path_to_dataset_root, f'video_sequences_{model_name}', 'train', str(epoch_idx))
         os.makedirs(path_to_save_train, exist_ok=True)
         for labels, data in tqdm(train_dataloader):
             with torch.inference_mode():
