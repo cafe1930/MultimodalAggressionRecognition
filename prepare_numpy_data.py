@@ -25,9 +25,9 @@ def read_video_frames_opencv(path_to_video):
     return np.array(frames_list)#)#.transpose(0, 3, 1, 2)
 
 if __name__ == '__main__':
-    paths_to_videos_list = glob.glob(r'~/DATA/trash_to_train_on_video/*.mp4')
+    paths_to_videos_list = glob.glob(r'/home/aggr/mikhail_u/DATA/trash_to_train_on_video/*.mp4')
 
-    path_to_numpy = r'~/DATA/trash_to_train_on_video_numpy'
+    path_to_numpy = r'/home/aggr/mikhail_u/DATA/trash_to_train_on_video_numpy224'
     os.makedirs(path_to_numpy, exist_ok=True)
 
     video_lengths_list = []
@@ -64,7 +64,7 @@ if __name__ == '__main__':
         #print(frames.shape)
         tv_frames = tv_tensors.Video(frames)
         #print(tv_frames.shape)
-        resizer = v2.Resize(size=(112, 112), antialias=True)
+        resizer = v2.Resize(size=(224, 224), antialias=True)
         tv_frames = resizer(tv_frames)
         #print(tv_frames.shape)
         frames = tv_frames.numpy()#.transpose(0, 2, 3, 1)
