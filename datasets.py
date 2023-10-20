@@ -40,7 +40,6 @@ class NumpyVideoExtractorDataset(torch.utils.data.Dataset):
         #path_to_data_file = os.path.join(self.path_to_data_files, name)
         data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32)
         tv_data = tv_tensors.Video(data, device=self.device)
-        
         return tv_data
 
     def __len__(self):

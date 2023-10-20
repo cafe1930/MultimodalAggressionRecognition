@@ -13,16 +13,17 @@ from sklearn import model_selection
 
 from datasets import NumpyVideoExtractorDataset
 
-from models import R3D_extractor, Swin3d_T_extractor
+from models import R3D_extractor, Swin3d_T_extractor, S3D_extractor
 
 
 if __name__ == '__main__':
-    start_ep = 4
-    finish_ep = 1000
+    start_ep = 3
+    finish_ep = 300
     
-    model_name = 'swin3dt'
+    model_name = 'S3d'
     #extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
-    extractor = Swin3d_T_extractor(frame_num=304, window_size=16).cuda()
+    #extractor = Swin3d_T_extractor(frame_num=304, window_size=16).cuda()
+    extractor = S3D_extractor(frame_num=304, window_size=16).cuda()
     extractor.eval()
 
     #paths_to_video_npy_list = glob.glob(r'I:\AVABOS\trash_to_train_on_video_numpy\*.npy')
@@ -31,7 +32,7 @@ if __name__ == '__main__':
         train_names = fd.read()
     train_names = train_names.split('\n')
 
-    path_to_dataset_root = r'/home/aggr/mikhail_u/DATA'
+    path_to_dataset_root = r'C:\Users\admin\python_programming\DATA\AVABOS'
     path_to_npy_videos = os.path.join(path_to_dataset_root, 'trash_to_train_on_video_numpy')
 
     paths_to_video_npy_list = glob.glob(os.path.join(path_to_npy_videos, '*.npy'))
