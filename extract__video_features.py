@@ -17,22 +17,22 @@ from models import R3D_extractor, Swin3d_T_extractor, S3D_extractor
 
 
 if __name__ == '__main__':
-    start_ep = 3
-    finish_ep = 300
+    start_ep = 1000
+    finish_ep = 1250
     
-    model_name = 'S3d'
+    model_name = 'swin3dt'
     #extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
-    #extractor = Swin3d_T_extractor(frame_num=304, window_size=16).cuda()
-    extractor = S3D_extractor(frame_num=304, window_size=16).cuda()
+    extractor = Swin3d_T_extractor(frame_num=304, window_size=16).cuda()
+    #extractor = S3D_extractor(frame_num=304, window_size=16).cuda()
     extractor.eval()
 
     #paths_to_video_npy_list = glob.glob(r'I:\AVABOS\trash_to_train_on_video_numpy\*.npy')
     # read names from file due to their order is generated in Windows
-    with open('train_names.txt', 'r') as fd:
+    with open('train_names.txt', 'r', encoding='utf-8') as fd:
         train_names = fd.read()
     train_names = train_names.split('\n')
 
-    path_to_dataset_root = r'C:\Users\admin\python_programming\DATA\AVABOS'
+    path_to_dataset_root = r'I:\AVABOS'
     path_to_npy_videos = os.path.join(path_to_dataset_root, 'trash_to_train_on_video_numpy')
 
     paths_to_video_npy_list = glob.glob(os.path.join(path_to_npy_videos, '*.npy'))
@@ -92,9 +92,9 @@ if __name__ == '__main__':
     #        path_to_save = os.path.join(path_to_save_test, label)
     #        np.save(path_to_save, features_seq)
 
-    #print('----------------')
-    #print('Test sample DONE')
-    #print('----------------')
+    print('----------------')
+    print('Test sample DONE')
+    print('----------------')
     
     for epoch_idx in range(start_ep, finish_ep):
         print(f'Epoch # {epoch_idx} of {finish_ep} epochs')

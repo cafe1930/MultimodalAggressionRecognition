@@ -64,6 +64,32 @@ class S3D_extractor(ExtractorBase):
 
         return model
     
+class AudioExtractor(nn.Module):
+    def __init__(self, frame_num, window_size):
+        super().__init__()
+        self.frame_num = frame_num
+        self.window_size = window_size
+        self.extractor = self.prepare_model()
+
+    def prepare_model(self):
+        raise NotImplementedError(f'Method \'prepare_model\' in {self.__class__.__name__} should be implemented')
+
+    def forward(self, x):
+        features_list = []
+        for idx, i in enumerate(range(0, self.frame_num, self.window_size)):
+            features = self.extractor(x[:,:,i:i+self.window_size,:,:])
+            features_list.append(features)
+
+        return torch.stack(features_list).permute((1, 0, 2)).detach().cpu().numpy()
+
+class RNN_base(nn.Module):
+    def __init__(self, input_size):
+        super().__init__()
+        self.input_size = input_size
+
+    def forward(sel, x):
+        return x
+
 
 if __name__ == '__main__':
     size = (1, 3, 304, 112, 112)

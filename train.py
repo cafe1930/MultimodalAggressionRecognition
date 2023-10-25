@@ -26,11 +26,6 @@ import argparse
 from datasets import SegmentationDataset
 from trainer import SegmentationTrainer
 
-from segmentation_autoencoder import *
-from unet import *
-from segnet import *
-
-import segmentation_models_pytorch as smp
 
 
 import warnings
