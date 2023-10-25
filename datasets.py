@@ -52,6 +52,35 @@ class NumpyVideoExtractorDataset(torch.utils.data.Dataset):
         #return data
         return label, data.permute((1, 0, 2, 3))
 
+class RnnFeaturesDataset(torch.utils.data.Dataset):
+    label_dict = {'AGGR': 1, 'NOAGGR': 0}
+    def __init__(self, path_to_data_root):
+        self.path_to_data_root = path_to_data_root
+        self.paths_to_data_list = [os.path.join(path_to_data_root, p) for p in os.listdir(path_to_data_root) if p.endswith('.npy')]
+
+    def get_label(self, idx):
+        
+        #A structure of a file name is xxx_._yyy_._LABEL.npy
+        name = os.path.split(self.paths_to_data_list[idx])[-1]
+        return self.label_dict[name.split('_._')[-1].split('.')[0]]
+        #return name
+
+    def read_data_file(self, idx):
+        #name = self.files_list[idx]
+        #path_to_data_file = os.path.join(self.path_to_data_files, name)
+        data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32)
+        #tv_data = tv_tensors.Video(data, device=self.device)
+        return data
+    
+    def __len__(self):
+        return len(self.paths_to_data_list)
+    
+    def __getitem__(self, idx):
+        data = self.read_data_file(idx)
+        label = self.get_label(idx)
+        return data, label    
+
+
 if __name__ == '__main__':
     #torchvision.models.video.R3D_18_Weights.KINETICS400_V1
     model = model = torchvision.models.video.r3d_18(weights=torchvision.models.video.R3D_18_Weights.KINETICS400_V1)
@@ -110,7 +139,6 @@ if __name__ == '__main__':
             for idx in range(0, data.size(2), 16):
                 features_list.append(model(data[:,:,idx:idx+16,:,:]))
 
-    
     print(labels)
     print(len(features_list))
     print(features_list[0].shape)

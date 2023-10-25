@@ -32,7 +32,7 @@ if __name__ == '__main__':
         train_names = fd.read()
     train_names = train_names.split('\n')
 
-    path_to_dataset_root = r'I:\AVABOS'
+    path_to_dataset_root = r'C:\Users\admin\python_programming\DATA\AVABOS'
     path_to_npy_videos = os.path.join(path_to_dataset_root, 'trash_to_train_on_video_numpy')
 
     paths_to_video_npy_list = glob.glob(os.path.join(path_to_npy_videos, '*.npy'))
@@ -84,18 +84,19 @@ if __name__ == '__main__':
 
     
     path_to_save_test = os.path.join(path_to_dataset_root, f'video_sequences_{model_name}', 'test')
-    #os.makedirs(path_to_save_test, exist_ok=True)
-    #for labels, data in tqdm(test_dataloader):
-    #    with torch.inference_mode():
-    #        results = extractor(data)
-    #    for label, features_seq in zip(labels, results):
-    #        path_to_save = os.path.join(path_to_save_test, label)
-    #        np.save(path_to_save, features_seq)
+    os.makedirs(path_to_save_test, exist_ok=True)
+    for labels, data in tqdm(test_dataloader):
+        with torch.inference_mode():
+            results = extractor(data)
+        for label, features_seq in zip(labels, results):
+            path_to_save = os.path.join(path_to_save_test, label)
+            np.save(path_to_save, features_seq)
 
     print('----------------')
     print('Test sample DONE')
     print('----------------')
-    
+    #exit()
+
     for epoch_idx in range(start_ep, finish_ep):
         print(f'Epoch # {epoch_idx} of {finish_ep} epochs')
         

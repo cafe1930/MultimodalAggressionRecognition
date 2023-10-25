@@ -82,18 +82,49 @@ class AudioExtractor(nn.Module):
 
         return torch.stack(features_list).permute((1, 0, 2)).detach().cpu().numpy()
 
-class RNN_base(nn.Module):
-    def __init__(self, input_size):
+class RNN(nn.Module):
+    def __init__(self, rnn_type, rnn_layers_num, input_dim, hidden_dim, class_num):
         super().__init__()
-        self.input_size = input_size
+        self.hidden_dim = hidden_dim
 
-    def forward(sel, x):
-        return x
+        # The LSTM takes word embeddings as inputs, and outputs hidden states
+        # with dimensionality hidden_dim.
+        #self.rnn = nn.Sequential(
+        #    rnn_type(input_dim, hidden_dim, batch_first=True),
+        #    *[rnn_type(hidden_dim, hidden_dim, batch_first=True) for i in range(rnn_layers_num-1)]
+        #    )
+        
+        self.rnn = nn.ModuleList(
+            [rnn_type(input_dim, hidden_dim, batch_first=True)]+[rnn_type(hidden_dim, hidden_dim, batch_first=True) for i in range(rnn_layers_num-1)])
+
+        # The linear layer that maps from hidden state space to tag space
+        self.output_classifier = nn.Sequential(
+            nn.Linear(hidden_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(256, class_num)
+        )
+
+    def forward(self, sequence):
+        #embeds = self.word_embeddings(sentence)
+        #lstm_out, _ = self.rnn()
+        for rnn in self.rnn:
+            sequence, _ = rnn(sequence)
+    
+        tag_space = self.output_classifier(sequence[:,-1,:])
+        #tag_scores = F.log_softmax(tag_space, dim=1)
+        return tag_space#, _
 
 
 if __name__ == '__main__':
-    size = (1, 3, 304, 112, 112)
-    extractor = S3D_extractor(frame_num=304, window_size=16).cuda()
-    print(extractor.frame_num)
-    out = extractor(torch.randn(*size).cuda())
+    size = (10, 19, 1024)
+    rnn = RNN(
+        rnn_type=nn.GRU,
+        rnn_layers_num=1,
+        input_dim=1024,
+        hidden_dim=512,
+        class_num=2
+    ).cuda()
+    
+    out = rnn(torch.randn(*size).cuda())
     print(out.shape)

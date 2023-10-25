@@ -1,10 +1,6 @@
 import torch
 from torch import nn
 
-
-
-#from trainer import TorchSupervisedTrainer
-
 from tqdm import tqdm
 
 import shutil
@@ -52,6 +48,8 @@ class TorchSupervisedTrainer:
         self.model_name = model_name
         self.train_loader = train_loader
         self.test_loader = test_loader
+
+        self.batch_size = train_loader.batch_size
 
         self.device = device
         self.criterion = criterion
@@ -120,6 +118,9 @@ class TorchSupervisedTrainer:
 
         #self.optimizer.zero_grad()
         # 2. Прямое распространение
+        #!!!
+        #print(data.shape)
+        #print('\n')
         pred = self.model(data)
         # 3. Вычисление ошибки
         loss = self.criterion(pred, true_vals)
@@ -189,9 +190,16 @@ class TorchSupervisedTrainer:
             true.append(batch_results['true'])
             pred.append(batch_results['pred'])
 
+        #print()
+        #print(true)
+        #print(pred)
+        #print()
         # составляем массивы из полученных значений
-        true = np.array(true).reshape(-1)
-        pred = np.array(pred).reshape(-1)
+        #true = np.array(true).reshape(-1)
+        #pred = np.array(pred).reshape(-1)
+
+        true = np.concatenate(true)#.reshape(-1)
+        pred = np.concatenate(pred)#.reshape(-1)
         
         loss = cummulative_loss/dataset_size
         # Строка для вывода на экран
@@ -378,9 +386,7 @@ class TorchSupervisedTrainer:
         #t1 = time.time()
         #print('passed in {:.3f} seconds'.format(t1 - t0))
     '''
-
-        
-
+       
     def plot_train_process_results(self, metrics_list, train_test_sep=False, multiple_plots=False, save_plot=False):
         for metric_name in metrics_list:
             # если метрика содержит вектор значений, то мы на экран ее не выводим
@@ -445,7 +451,6 @@ class TorchSupervisedTrainer:
             if save_plot:
                 path_to_save = os.path.join(self.saving_dir, '{}_training_process.png'.format(self.model_name))
                 plt.savefig(path_to_save)
-
 
 
 class SegmentationTrainer(TorchSupervisedTrainer):
@@ -543,3 +548,128 @@ class SegmentationTrainer(TorchSupervisedTrainer):
         Пока реализовано только для обучающего/тестового набора
         '''
         raise NotImplementedError
+    
+
+class RNN_trainer(TorchSupervisedTrainer):
+    class_names_dict = {
+        0: 'NOAGGR',
+        1: 'AGGR'
+    }
+    
+    def __init__(
+            self,
+            model: nn.Module,
+            model_name: str,
+            train_loader: torch.utils.data.DataLoader,
+            test_loader: torch.utils.data.DataLoader,
+            metrics_dict: dict, # словарь с функциями, вычисляющими метрики
+            metrics_to_display: list, # список метрик выводимых на экран в ходе обучения
+            device: torch.device,
+            criterion,
+            optimizers_list: list, # список всех возможных оптимизаторов
+            lr_schedulers_list=[None], # список всех возможных планировщиков скорости обучения, по умолчанию, без планировщиков
+            saving_dir = 'saving_dir',
+            checkpoint_criterion='loss',
+            train_dataset = None
+        ):
+
+        super().__init__(
+            model,
+            model_name,
+            train_loader,
+            test_loader,
+            metrics_dict, # словарь с функциями, вычисляющими метрики
+            metrics_to_display, # список метрик выводимых на экран в ходе обучения
+            device,
+            criterion,
+            optimizers_list, # список всех возможных оптимизаторов
+            lr_schedulers_list, # список всех возможных планировщиков скорости обучения, по умолчанию, без планировщиков
+            saving_dir,
+            checkpoint_criterion
+        )
+
+        self.path_to_train_root = os.path.split(self.train_loader.dataset.path_to_data_root)[0]
+        self.train_dataset = train_dataset
+
+    def train(self, epoch_num):
+        end_epoch = self.start_epoch+epoch_num
+        for epoch_idx in range(self.start_epoch, end_epoch):
+            print('Train epoch # {} of {} epochs...'.format(epoch_idx, end_epoch-1))
+            
+            # создаем доп. датасет для своей эпохи
+            path_to_train_data_root = os.path.join(self.path_to_train_root, str(epoch_idx))
+            train_dataset = self.train_dataset(path_to_data_root=path_to_train_data_root)
+
+            self.train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4)
+            #t0 = time.time()
+            self.model.train()
+            # список, куда будем записывать промежуточные результаты эпохи
+            train_raw_result_list = []
+            for batch in tqdm(self.train_loader):
+                # обучение на одном батче
+                train_results = self.compute_batch_results(self.train_step(batch))
+                train_raw_result_list.append(train_results)
+
+            #t1 = time.time()
+            #print('passed in {:.3f} seconds'.format(t1 - t0))
+            # парсим результаты на обучающей выборке
+            train_results_dict = self.compute_epoch_results(train_raw_result_list, mode='train')
+
+            # выводим обучающие результаты на экран
+            self.print_result(train_results_dict)
+            
+            # сохраняем результат тренировочных метрик эпохи
+            self.training_log_df = pd.concat([self.training_log_df, pd.DataFrame([train_results_dict])], ignore_index=True)
+            
+            # запускаем процедуру тестирования
+            self.test_raw_result_list = self.test()
+            # парсим результаты на тестовой выборке
+            test_results_dict = self.compute_epoch_results(self.test_raw_result_list, mode='test')
+
+            # выводим тестовые результаты на экран
+            self.print_result(test_results_dict)
+
+            # сохраняем результат тестировочных метрик эпохи
+            self.testing_log_df = pd.concat([self.testing_log_df, pd.DataFrame([test_results_dict])], ignore_index=True)
+
+            # сохраняем результаты обучения после каждой итерации
+            self.save_logs()
+
+            # обновляем стартовую эпоху, чтобы иметь возможность восстановить модель и продолжить обучение с
+            #  той эпохи, с которой мы это обучение прекратили
+            self.start_epoch = epoch_idx+1
+
+            # save weights of current step
+            if self.path_to_current_checkpoint is not None:
+                os.remove(self.path_to_current_checkpoint)
+
+            current_weights_name = '{}_current_ep-{}.pt'.format(self.model_name, epoch_idx)
+            self.path_to_current_checkpoint = os.path.join(self.saving_dir, current_weights_name)
+            self.save_checkpoint(self.path_to_current_checkpoint)
+
+            # обновляем каждый планировщик скорости обучения из списка
+            for lr_scheduler in self.lr_schedulers_list:
+                # не обновляем планировщик, если его нет)
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
+            
+            # сохраняем лучшие веса
+            if self.checkpoint_criterion == 'loss':
+                err = test_results_dict[self.checkpoint_criterion]
+            else:
+                err = 1 - test_results_dict[self.checkpoint_criterion]
+            if err < self.best_criterion:
+                print('BEST RESULTS HAS ACHIEVED, SAVING WEIGHTS')
+                if self.path_to_best_checkpoint is not None:
+                    os.remove(self.path_to_best_checkpoint)
+                
+                best_weights_name = '{}_best_ep-{}.pt'.format(self.model_name, epoch_idx)
+                self.path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
+                # копируем текущие сохраняемые параметры
+                shutil.copy2(self.path_to_current_checkpoint, self.path_to_best_checkpoint)
+
+                #self.save_checkpoint(self.path_to_best_checkpoint)
+                self.best_criterion = err#test_results_dict[self.checkpoint_criterion]
+
+            # start testing procedure
+            print('----------------------------------------------')
