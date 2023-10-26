@@ -115,6 +115,18 @@ class RNN(nn.Module):
         #tag_scores = F.log_softmax(tag_space, dim=1)
         return tag_space#, _
 
+class VideoAverageFeatures(nn.Module):
+    def __init__(self, embedding_dim, class_num):
+        super().__init__()
+        self.averager = 0
+        self.output_classifier = nn.Sequential(
+            nn.Linear(embedding_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(256, class_num)
+        )
+    
+
 
 if __name__ == '__main__':
     size = (10, 19, 1024)

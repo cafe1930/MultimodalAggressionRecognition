@@ -43,8 +43,10 @@ if __name__ == '__main__':
         r'E:\AVABOS\video_squences_r3d',
         #r'D:\develop\mice_holes_dataset',
         '--class_num', '2',
-        '--epoch_num', '2',
-        '--batch_size', '64']
+        '--epoch_num', '2000',
+        '--batch_size', '128',
+        '--resume_training',
+        '--path_to_checkpoint', r'saving_dir\25.10.2023, 20-55-22 (R3D_GRU_1Layer)\R3D_GRU_1Layer_current_ep-1502.pt']
 
     args = parser.parse_args(sample_args)
 
@@ -80,13 +82,13 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
 
     model = RNN(
-        rnn_type=nn.LSTM,
+        rnn_type=nn.GRU,
         rnn_layers_num=1,
         input_dim=512,
         hidden_dim=512,
         class_num=2
     )
-    model_name = 'LSTM_1Layer'
+    model_name = 'R3D_GRU_1Layer'
 
     #for l, d in tqdm(train_loader):
     #   pass
@@ -99,7 +101,7 @@ if __name__ == '__main__':
     print(out.shape)
     exit()
     '''
-    
+
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters())
@@ -131,11 +133,13 @@ if __name__ == '__main__':
 
     if resume_training:
         trainer = torch.load(path_to_checkpoint)
-        trainer.train_loader.dataset.path_to_dataset = path_to_dataset
-        trainer.train_loader.dataset.path_to_dataset = path_to_dataset
+        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
+        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
 
+    #print(trainer.start_epoch)
+    #exit()
     # Запуск обучения
-    trainer.train(epoch_num)
+    trainer.train(epoch_num-trainer.start_epoch)
 
     #print(segmentation_trainer.testing_log_df['mean IoU'])
     epoch_idx = trainer.testing_log_df['accuracy'].astype(float).argmax()

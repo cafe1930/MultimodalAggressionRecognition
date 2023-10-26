@@ -1,4 +1,6 @@
 import torch
+import torchaudio
+
 from torch import nn
 import numpy as np
 
@@ -17,8 +19,8 @@ from models import R3D_extractor, Swin3d_T_extractor, S3D_extractor
 
 
 if __name__ == '__main__':
-    start_ep = 1500
-    finish_ep = 2000
+    start_ep = 1000
+    finish_ep = 1250
     
     model_name = 'swin3dt'
     #extractor = R3D_extractor(frame_num=304, window_size=16).cuda()
