@@ -598,9 +598,10 @@ class RNN_trainer(TorchSupervisedTrainer):
             
             # создаем доп. датасет для своей эпохи
             path_to_train_data_root = os.path.join(self.path_to_train_root, str(epoch_idx))
-            train_dataset = self.train_dataset(path_to_data_root=path_to_train_data_root)
+            #train_dataset = self.train_dataset(path_to_data_root=path_to_train_data_root)
 
-            self.train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4)
+            #self.train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=0)
+            self.train_loader.dataset.path_to_data_root = path_to_train_data_root
             #t0 = time.time()
             self.model.train()
             # список, куда будем записывать промежуточные результаты эпохи

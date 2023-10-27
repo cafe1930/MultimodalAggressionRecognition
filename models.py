@@ -116,15 +116,17 @@ class RNN(nn.Module):
         return tag_space#, _
 
 class VideoAverageFeatures(nn.Module):
-    def __init__(self, embedding_dim, class_num):
+    def __init__(self, input_dim, class_num):
         super().__init__()
-        self.averager = 0
         self.output_classifier = nn.Sequential(
-            nn.Linear(embedding_dim, 256),
+            nn.Linear(input_dim, 256),
             nn.ReLU(),
             nn.Dropout(),
             nn.Linear(256, class_num)
         )
+
+    def forward(self, x):
+        return self.output_classifier(x.mean(dim=1))
     
 
 

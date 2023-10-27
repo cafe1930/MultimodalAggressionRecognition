@@ -4,7 +4,7 @@ import torchvision
 
 from sklearn.model_selection import train_test_split
 
-from models import RNN
+from models import RNN, VideoAverageFeatures
 from tqdm import tqdm
 
 from sklearn import metrics
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--nn_input_size', nargs='+', type=int)
     parser.add_argument('--epoch_num')
     parser.add_argument('--test_size', type=float)
-    
+    '''
     sample_args = [
         '--path_to_dataset',
         r'E:\AVABOS\video_squences_r3d',
@@ -47,7 +47,15 @@ if __name__ == '__main__':
         '--batch_size', '128',
         '--resume_training',
         '--path_to_checkpoint', r'saving_dir\25.10.2023, 20-55-22 (R3D_GRU_1Layer)\R3D_GRU_1Layer_current_ep-1502.pt']
-
+    '''
+    sample_args = [
+        '--path_to_dataset',
+        r'I:\AVABOS\video_squences_r3d',
+        '--class_num', '2',
+        '--epoch_num', '2000',
+        '--batch_size', '128']
+    
+    
     args = parser.parse_args(sample_args)
 
     path_to_dataset_root = args.path_to_dataset
@@ -72,23 +80,25 @@ if __name__ == '__main__':
 
     #print(train_dataset[0])
     #print(test_dataset[-1])
-    
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)    
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)    
     
-
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
-
+    '''
     model = RNN(
         rnn_type=nn.GRU,
         rnn_layers_num=1,
         input_dim=512,
         hidden_dim=512,
+        class_num=2)
+    '''
+    model = VideoAverageFeatures(
+        input_dim=512,
         class_num=2
     )
-    model_name = 'R3D_GRU_1Layer'
+    model_name = 'R3D_avg'
 
     #for l, d in tqdm(train_loader):
     #   pass
@@ -118,7 +128,14 @@ if __name__ == '__main__':
 
     metrics_to_dispaly = ['loss', 'accuracy', 'UAR']
 
-    trainer = RNN_trainer(
+    
+
+    if resume_training:
+        trainer = torch.load(path_to_checkpoint)
+        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
+        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
+    else:
+        trainer = RNN_trainer(
         model=model,
         model_name=model_name,
         train_loader=train_loader,
@@ -131,10 +148,6 @@ if __name__ == '__main__':
         device=device,
         train_dataset=RnnFeaturesDataset)
 
-    if resume_training:
-        trainer = torch.load(path_to_checkpoint)
-        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
-        #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
 
     #print(trainer.start_epoch)
     #exit()
