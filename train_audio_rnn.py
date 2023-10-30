@@ -43,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume_training', action='store_true')
     parser.add_argument('--path_to_checkpoint')
     parser.add_argument('--batch_size', required=True)
+    parser.add_argument('--model_name', required=True)
     parser.add_argument('--nn_input_size', nargs='+', type=int)
     parser.add_argument('--epoch_num')
     parser.add_argument('--test_size', type=float)
@@ -60,6 +61,7 @@ if __name__ == '__main__':
     sample_args = [
         '--path_to_dataset',
         r'I:\AVABOS\audio_data',
+        '--model_name', 'wav2vec2'
         '--class_num', '2',
         '--epoch_num', '100',
         '--batch_size', '16']
@@ -73,6 +75,7 @@ if __name__ == '__main__':
     epoch_num = int(args.epoch_num)
     class_num = args.class_num
     batch_size = int(args.batch_size)
+    model_name = args.model_name
     
     if resume_training == True:
         if path_to_checkpoint is None:
@@ -85,7 +88,7 @@ if __name__ == '__main__':
     path_to_test_data_root = os.path.join(path_to_dataset_root, 'test')
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'wav2vec1'
+    #model_name = 'wav2vec1'
     # подготовка модели
     bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     sample_rate = bundle.sample_rate
@@ -139,11 +142,14 @@ if __name__ == '__main__':
     for name, model in rnn_dict.items():
         models_dict[name] = FeatureSequenceProcessing(model, class_num=2)
 
-    # Wav2Vec1.0
-    extractor_dict = {model_name: Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))}
-
-    # Wav2Vec 2.0
-    #extractor_dict = {model_name: Wav2vec2Extractor(bundle.get_model())}
+    if model_name == 'wav2vec1':
+        # Wav2Vec1.0
+        extractor_dict = {model_name: Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))}
+    elif model_name == 'wav2vec2':
+        # Wav2Vec 2.0
+        extractor_dict = {model_name: Wav2vec2Extractor(bundle.get_model())}
+    else:
+        raise ValueError('Allowed model names are: wav2vec1, wav2vec1')
     
     model = AudioMultiNN(models_dict=models_dict, extractor_dict=extractor_dict)
 
