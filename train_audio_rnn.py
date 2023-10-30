@@ -61,7 +61,7 @@ if __name__ == '__main__':
         '--path_to_dataset',
         r'I:\AVABOS\audio_data',
         '--class_num', '2',
-        '--epoch_num', '3000',
+        '--epoch_num', '100',
         '--batch_size', '16']
     
     

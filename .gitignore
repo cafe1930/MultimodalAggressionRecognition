@@ -13,7 +13,6 @@ __pycache__/
 *.pickle
 *.pkl
 *.pth
-*.pt
 *.tar
 *.mp4
 *.zip

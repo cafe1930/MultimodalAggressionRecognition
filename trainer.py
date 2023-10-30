@@ -349,7 +349,7 @@ class TorchSupervisedTrainer:
             self.print_result(test_results_dict)
 
             # сохраняем результат тестировочных метрик эпохи
-            self.update_log('test', train_results_dict)
+            self.update_log('test', test_results_dict)
 
             # сохраняем результаты обучения после каждой итерации
             self.save_logs()
