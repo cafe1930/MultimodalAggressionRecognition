@@ -159,10 +159,35 @@ class VideoMultiNN(nn.Module):
 
             output_dict[name] = model(x) 
         return output_dict
+
+class Wav2vecExtractor(nn.Module):
+    def __init__(self, wav2vec_model):
+        super().__init__()
+        self.wav2vec = wav2vec_model
+    
+    def forward(self, x):
+        features = self.wav2vec(x).permute(0, 2, 1)
+        #print(features.shape)
+        #print()
+        #exit()
+
+        return features
+
+class Wav2vec2Extractor(Wav2vecExtractor):
+    def forward(self, x):
+        features = self.wav2vec.extract_features(x)[0][-1]
+        #print(features.shape)
+        #exit()
+
+        return features 
+    
+#class Wav2Vec1Extractor(nn.Module):
+
     
 class AudioMultiNN(nn.Module):
     def __init__(self, models_dict, extractor_dict):
         super().__init__()
+        self.extractor_dict = nn.ModuleDict(extractor_dict)
         self.extractor_dict = nn.ModuleDict(extractor_dict)
         self.extractor_dict.eval()
 
@@ -177,13 +202,13 @@ class AudioMultiNN(nn.Module):
     def forward(self, x):
         with torch.no_grad():
             for name, model in self.extractor_dict.items():
-                features, _ = model.extract_features(x)
-            #features, _ = self.extractor.extract_features(x)
+                features = model(x)
+                #features, _ = self.extractor.extract_features(x)
 
         #return features
         output_dict = {}
         for name, model in self.models_dict.items():
-            output_dict[name] = model(features[-1]) 
+            output_dict[name] = model(features) 
         return output_dict
 
 class LossesDict(dict):

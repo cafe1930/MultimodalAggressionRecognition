@@ -26,7 +26,14 @@ import argparse
 
 from datasets import RnnFeaturesDataset, AudioDatasetPt
 from trainer import AudioRNN_trainer
-from models import AudioMultiNN, FeatureSequenceProcessing, VideoAverageFeatures, AverageFeatureSequence, MultiCrossEntropyLoss
+from models import (
+    AudioMultiNN,
+    FeatureSequenceProcessing,
+    VideoAverageFeatures,
+    AverageFeatureSequence,
+    MultiCrossEntropyLoss,
+    Wav2vecExtractor,
+    Wav2vec2Extractor)
 
 if __name__ == '__main__':
 
@@ -54,7 +61,7 @@ if __name__ == '__main__':
         '--path_to_dataset',
         r'I:\AVABOS\audio_data',
         '--class_num', '2',
-        '--epoch_num', '10',
+        '--epoch_num', '3000',
         '--batch_size', '16']
     
     
@@ -78,7 +85,7 @@ if __name__ == '__main__':
     path_to_test_data_root = os.path.join(path_to_dataset_root, 'test')
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'wav2vec2'
+    model_name = 'wav2vec1'
     # подготовка модели
     bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     sample_rate = bundle.sample_rate
@@ -93,7 +100,7 @@ if __name__ == '__main__':
     #exit()
 
     # описание архитектур всех обучаемых рекуррентных нейросетей для обертки FeatureSequenceProcessing
-    input_size = 768 # определяется размером вектора признаков, получаемого с экстрактора
+    input_size = 512 # определяется размером вектора признаков, получаемого с экстрактора
     hidden_size = 512 # не будет работать, если будет более двух слоев rnn
     rnn_dict = {
         'LSTM_1L': {
@@ -132,10 +139,12 @@ if __name__ == '__main__':
     for name, model in rnn_dict.items():
         models_dict[name] = FeatureSequenceProcessing(model, class_num=2)
 
+    # Wav2Vec1.0
+    extractor_dict = {model_name: Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))}
+
+    # Wav2Vec 2.0
+    #extractor_dict = {model_name: Wav2vec2Extractor(bundle.get_model())}
     
-    extractor_dict = {
-        model_name: bundle.get_model()
-    }
     model = AudioMultiNN(models_dict=models_dict, extractor_dict=extractor_dict)
 
     model.to(device)
