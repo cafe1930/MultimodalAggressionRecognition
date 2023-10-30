@@ -39,11 +39,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_dataset',  required=True)
+    parser.add_argument('--model_name', required=True)
     parser.add_argument('--class_num', type=int)
     parser.add_argument('--resume_training', action='store_true')
     parser.add_argument('--path_to_checkpoint')
     parser.add_argument('--batch_size', required=True)
-    parser.add_argument('--model_name', required=True)
+    
     parser.add_argument('--nn_input_size', nargs='+', type=int)
     parser.add_argument('--epoch_num')
     parser.add_argument('--test_size', type=float)
@@ -61,9 +62,9 @@ if __name__ == '__main__':
     sample_args = [
         '--path_to_dataset',
         r'I:\AVABOS\audio_data',
-        '--model_name', 'wav2vec2'
+        '--model_name', 'wav2vec2',
         '--class_num', '2',
-        '--epoch_num', '100',
+        '--epoch_num', '2000',
         '--batch_size', '16']
     
     
@@ -102,8 +103,19 @@ if __name__ == '__main__':
     #print(train_dataset[0][0].dtype)
     #exit()
 
+    if model_name == 'wav2vec1':
+        # Wav2Vec1.0
+        extractor_dict = {model_name: Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))}
+        input_size = 512 # определяется размером вектора признаков, получаемого с экстрактора
+    elif model_name == 'wav2vec2':
+        # Wav2Vec 2.0
+        extractor_dict = {model_name: Wav2vec2Extractor(bundle.get_model())}
+        input_size = 768 # определяется размером вектора признаков, получаемого с экстрактора
+    else:
+        raise ValueError('Allowed model names are: wav2vec1, wav2vec1')
+    
     # описание архитектур всех обучаемых рекуррентных нейросетей для обертки FeatureSequenceProcessing
-    input_size = 512 # определяется размером вектора признаков, получаемого с экстрактора
+    
     hidden_size = 512 # не будет работать, если будет более двух слоев rnn
     rnn_dict = {
         'LSTM_1L': {
@@ -142,15 +154,6 @@ if __name__ == '__main__':
     for name, model in rnn_dict.items():
         models_dict[name] = FeatureSequenceProcessing(model, class_num=2)
 
-    if model_name == 'wav2vec1':
-        # Wav2Vec1.0
-        extractor_dict = {model_name: Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))}
-    elif model_name == 'wav2vec2':
-        # Wav2Vec 2.0
-        extractor_dict = {model_name: Wav2vec2Extractor(bundle.get_model())}
-    else:
-        raise ValueError('Allowed model names are: wav2vec1, wav2vec1')
-    
     model = AudioMultiNN(models_dict=models_dict, extractor_dict=extractor_dict)
 
     model.to(device)
