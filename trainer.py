@@ -8,7 +8,7 @@ import os
 import warnings
 
 from datetime import datetime
-
+import pickle
 import pandas as pd
 
 import random
@@ -60,15 +60,14 @@ class TorchSupervisedTrainer:
 
         # Эпоха, с которой мы начинаем обучение
         self.start_epoch = 0
-        #self.current_epoch = self.start_epoch
+        self.current_epoch = self.start_epoch
 
         #self.metrics_list = metrics_list
         # специфицируется для каждой задачи
-        self.training_log_df = pd.DataFrame(columns=metrics_dict.keys())
-        self.testing_log_df = pd.DataFrame(columns=metrics_dict.keys())
+        self.init_log()
         #!!!!!!!
         self.checkpoint_criterion = checkpoint_criterion
-        self.best_criterion = 999999
+        self.best_criterion = self.define_best_criterion(checkpoint_criterion)
         '''
         if checkpoint_criterion == 'loss':
             # если контролируем loss, то берем изначально большое значение критерия
@@ -95,14 +94,25 @@ class TorchSupervisedTrainer:
         self.saving_dir = os.path.join(saving_dir, current_date_time+f' ({model_name})')
         if not os.path.isdir(self.saving_dir):
             os.mkdir(self.saving_dir)
+
     
-    def nn_output_processing(self, pred):
-        '''
-        ПЕРЕПИСЫВЕМАЯ ФУНКЦИЯ
-        функция, выполняющая постобработку выхода нейронной сети
-        '''
-        _, pred_labels = torch.max(pred.data, dim=1)
-        return pred_labels
+    def define_best_criterion(self, checkpoint_criterion):
+        if checkpoint_criterion == 'loss':
+            # если контролируем loss, то берем изначально большое значение критерия
+            best_criterion = 0
+            # функция сравнения текущего значения метрики с лучшим
+            #self.is_best_result = lambda x,y: x<y
+        else:
+            # если контролируем другую метрику (accuracy, recall и т.д.), то берем изначально нулевое значение критерия
+            best_criterion = 9999999
+            # функция сравнения текущего значения метрики с лучшим
+            #self.is_best_result = lambda x,y: x>y
+
+        return best_criterion
+    
+    def init_log(self):
+        self.training_log = pd.DataFrame(columns=self.metrics_dict.keys())
+        self.testing_log = pd.DataFrame(columns=self.metrics_dict.keys())
 
 
     def train_step(self, batch):
@@ -118,9 +128,6 @@ class TorchSupervisedTrainer:
 
         #self.optimizer.zero_grad()
         # 2. Прямое распространение
-        #!!!
-        #print(data.shape)
-        #print('\n')
         pred = self.model(data)
         # 3. Вычисление ошибки
         loss = self.criterion(pred, true_vals)
@@ -132,10 +139,28 @@ class TorchSupervisedTrainer:
         #self.optimizer.step()
 
         # Вычисление суммарной ошибки на батче
-        ret_loss = loss.item() * data.size(0)
+        #ret_loss = loss.item() * data.size(0)
+        ret_loss = self.compute_batch_loss(loss, data.size(0))
         # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)
-        return {'loss': ret_loss, 'true': true_vals.detach().cpu().numpy(), 'pred': pred_vals.detach().cpu().numpy()}
+        batch_results_dict = self.create_batch_results_dict(ret_loss, pred_vals, true_vals)
+        return batch_results_dict
+    
+    def nn_output_processing(self, pred):
+        '''
+        ПЕРЕПИСЫВЕМАЯ ФУНКЦИЯ
+        функция, выполняющая постобработку выхода нейронной сети
+        '''
+        _, pred_labels = torch.max(pred.data, dim=1)
+        return pred_labels.detach().cpu().numpy()
+        
+
+    def compute_batch_loss(self, batch_loss, data_size):
+        # специальный метод нужен для того, чтобы мочь обрабатывать множество независимых выходов...
+        return batch_loss.item() * data_size
+    
+    def create_batch_results_dict(self, ret_loss, pred_vals, true_vals):
+        return {'loss': ret_loss, 'true': true_vals.detach().cpu().numpy(), 'pred': pred_vals}
 
     def test_step(self, batch):
         '''
@@ -148,11 +173,13 @@ class TorchSupervisedTrainer:
         pred = self.model(data)
         # Прямое распространение
         loss = self.criterion(pred, true_vals)
-        # Вычисление суммарной ошибке на батче
-        ret_loss = loss.item() * data.size(0)
-        # получение меток
+        # Вычисление суммарной ошибки на батче
+        #ret_loss = loss.item() * data.size(0)
+        ret_loss = self.compute_batch_loss(loss, data.size(0))
+        # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)
-        return {'loss': ret_loss, 'true': true_vals.cpu().numpy(), 'pred': pred_vals.cpu()}
+        batch_results_dict = self.create_batch_results_dict(ret_loss, pred_vals, true_vals)
+        return batch_results_dict
 
     
     def compute_epoch_loss(self, results_list):
@@ -190,10 +217,6 @@ class TorchSupervisedTrainer:
             true.append(batch_results['true'])
             pred.append(batch_results['pred'])
 
-        #print()
-        #print(true)
-        #print(pred)
-        #print()
         # составляем массивы из полученных значений
         #true = np.array(true).reshape(-1)
         #pred = np.array(pred).reshape(-1)
@@ -277,14 +300,23 @@ class TorchSupervisedTrainer:
         '''
         Сохранение результатов обучения
         '''
-        self.training_log_df.to_csv(os.path.join(self.saving_dir, 'train_log_.csv'))
-        self.testing_log_df.to_csv(os.path.join(self.saving_dir, 'test_log_.csv'))
+        self.training_log.to_csv(os.path.join(self.saving_dir, 'train_log_.csv'))
+        self.testing_log.to_csv(os.path.join(self.saving_dir, 'test_log_.csv'))
+
+    def update_datasets(self):
+        '''
+        Функция нужна, если на каждой эпохе надо изменять датасеты
+        '''
+        pass
 
     def train(self, epoch_num):
+        
         end_epoch = self.start_epoch+epoch_num
         for epoch_idx in range(self.start_epoch, end_epoch):
+            self.current_epoch = epoch_idx
             print('Train epoch # {} of {} epochs...'.format(epoch_idx, end_epoch-1))
             #t0 = time.time()
+            self.update_datasets()
             self.model.train()
             # список, куда будем записывать промежуточные результаты эпохи
             train_raw_result_list = []
@@ -292,9 +324,13 @@ class TorchSupervisedTrainer:
                 # обучение на одном батче
                 train_results = self.compute_batch_results(self.train_step(batch))
                 train_raw_result_list.append(train_results)
+            
+            # обновляем каждый планировщик скорости обучения из списка
+            for lr_scheduler in self.lr_schedulers_list:
+                # не обновляем планировщик, если его нет)
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
 
-            #t1 = time.time()
-            #print('passed in {:.3f} seconds'.format(t1 - t0))
             # парсим результаты на обучающей выборке
             train_results_dict = self.compute_epoch_results(train_raw_result_list, mode='train')
 
@@ -302,8 +338,8 @@ class TorchSupervisedTrainer:
             self.print_result(train_results_dict)
             
             # сохраняем результат тренировочных метрик эпохи
-            self.training_log_df = pd.concat([self.training_log_df, pd.DataFrame([train_results_dict])], ignore_index=True)
-            
+            self.update_log('train', train_results_dict)
+
             # запускаем процедуру тестирования
             self.test_raw_result_list = self.test()
             # парсим результаты на тестовой выборке
@@ -313,7 +349,7 @@ class TorchSupervisedTrainer:
             self.print_result(test_results_dict)
 
             # сохраняем результат тестировочных метрик эпохи
-            self.testing_log_df = pd.concat([self.testing_log_df, pd.DataFrame([test_results_dict])], ignore_index=True)
+            self.update_log('test', train_results_dict)
 
             # сохраняем результаты обучения после каждой итерации
             self.save_logs()
@@ -322,40 +358,51 @@ class TorchSupervisedTrainer:
             #  той эпохи, с которой мы это обучение прекратили
             self.start_epoch = epoch_idx+1
 
-            # save weights of current step
-            if self.path_to_current_checkpoint is not None:
-                os.remove(self.path_to_current_checkpoint)
+            # сохраняем лучшие веса - надо выполнить раньше save_checkpoint, чтобы сохранились пути до лучших весов
+            self.save_best_weights(test_results_dict)
 
-            current_weights_name = '{}_current_ep-{}.pt'.format(self.model_name, epoch_idx)
-            self.path_to_current_checkpoint = os.path.join(self.saving_dir, current_weights_name)
+            # save weights of current step
+            self.prepare_current_checkpoint_path()
             self.save_checkpoint(self.path_to_current_checkpoint)
 
-            # обновляем каждый планировщик скорости обучения из списка
-            for lr_scheduler in self.lr_schedulers_list:
-                # не обновляем планировщик, если его нет)
-                if lr_scheduler is not None:
-                    lr_scheduler.step()
             
-            # сохраняем лучшие веса
-            if self.checkpoint_criterion == 'loss':
-                err = test_results_dict[self.checkpoint_criterion]
-            else:
-                err = 1 - test_results_dict[self.checkpoint_criterion]
-            if err < self.best_criterion:
-                print('BEST RESULTS HAS ACHIEVED, SAVING WEIGHTS')
-                if self.path_to_best_checkpoint is not None:
-                    os.remove(self.path_to_best_checkpoint)
-                
-                best_weights_name = '{}_best_ep-{}.pt'.format(self.model_name, epoch_idx)
-                self.path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
-                # копируем текущие сохраняемые параметры
-                shutil.copy2(self.path_to_current_checkpoint, self.path_to_best_checkpoint)
-
-                #self.save_checkpoint(self.path_to_best_checkpoint)
-                self.best_criterion = err#test_results_dict[self.checkpoint_criterion]
+            
+            
 
             # start testing procedure
             print('----------------------------------------------')
+    
+    def prepare_current_checkpoint_path(self):
+        if self.path_to_current_checkpoint is not None:
+            os.remove(self.path_to_current_checkpoint)
+
+        current_weights_name = '{}_current_ep-{}.pt'.format(self.model_name, self.current_epoch)
+        self.path_to_current_checkpoint = os.path.join(self.saving_dir, current_weights_name)
+
+    def save_best_weights(self, test_results_dict):
+        if self.checkpoint_criterion == 'loss':
+            err = test_results_dict[self.checkpoint_criterion]
+        else:
+            err = 1 - test_results_dict[self.checkpoint_criterion]
+        if err < self.best_criterion:
+            print('BEST RESULTS HAS ACHIEVED, SAVING WEIGHTS')
+            if self.path_to_best_checkpoint is not None:
+                os.remove(self.path_to_best_checkpoint)
+            
+            best_weights_name = '{}_best_ep-{}.pt'.format(self.model_name, self.current_epoch)
+            self.path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
+            # копируем текущие сохраняемые параметры
+            shutil.copy2(self.path_to_current_checkpoint, self.path_to_best_checkpoint)
+
+            #self.save_checkpoint(self.path_to_best_checkpoint)
+            self.best_criterion = err#test_results_dict[self.checkpoint_criterion]
+
+
+    def update_log(self, mode, results_dict):
+        if mode.lower() == 'train':
+            self.training_log = pd.concat([self.training_log, pd.DataFrame([results_dict])], ignore_index=True)
+        elif mode.lower() == 'test':
+            self.testing_log = pd.concat([self.testing_log, pd.DataFrame([results_dict])], ignore_index=True)
 
     def test(self):
         '''
@@ -371,8 +418,6 @@ class TorchSupervisedTrainer:
                 test_results = self.compute_batch_results(self.test_step(batch))
                 result_list.append(test_results)
 
-        #t1 = time.time()
-        #print('passed in {:.3f} seconds'.format(t1 - t0))
         return result_list
     '''
     def infer(self, dataloader):
@@ -391,7 +436,7 @@ class TorchSupervisedTrainer:
         for metric_name in metrics_list:
             # если метрика содержит вектор значений, то мы на экран ее не выводим
             try:
-                len(self.training_log_df[metric_name][0])
+                len(self.training_log[metric_name][0])
                 warnings.warn('WARNING!\n\'{}\' metric will not be displayed due to it has multiple values.'.format(metric_name))
                 metrics_list.remove(metric_name)
             except TypeError:
@@ -401,7 +446,7 @@ class TorchSupervisedTrainer:
                         plt.figure(figsize=(6,6),facecolor='white')
                         plt.title(title)
                         plt.xlabel('Epochs')
-                        plt.plot(self.training_log_df[metric_name])
+                        plt.plot(self.training_log[metric_name])
                         plt.savefig(os.path.join(self.saving_dir, title+'.png'))
                         plt.show()
                         
@@ -410,7 +455,7 @@ class TorchSupervisedTrainer:
                         plt.figure(figsize=(6,6),facecolor='white')
                         plt.title(title)
                         plt.xlabel('Epochs')
-                        plt.plot(self.testing_log_df[metric_name])
+                        plt.plot(self.testing_log[metric_name])
                         plt.savefig(os.path.join(self.saving_dir, title+'.png'))
                         plt.show()
                         
@@ -419,8 +464,8 @@ class TorchSupervisedTrainer:
                         plt.figure(figsize=(6,6),facecolor='white')
                         plt.title(title)
                         plt.xlabel('Epochs')
-                        plt.plot(self.training_log_df[metric_name])
-                        plt.plot(self.testing_log_df[metric_name])
+                        plt.plot(self.training_log[metric_name])
+                        plt.plot(self.testing_log[metric_name])
                         plt.legend(['Train', 'Test'])
                         plt.savefig(os.path.join(self.saving_dir, title+'.png'))
                         plt.show()
@@ -432,20 +477,19 @@ class TorchSupervisedTrainer:
             else:
                 fig, axs = plt.subplots(1, len(metrics_list), figsize=(len(metrics_list)*6, 6),facecolor='white')
 
-            #print(len(axs))
             for plot_idx, metric_name in enumerate(metrics_list):
                 if train_test_sep:
                     axs[plot_idx*2].set_title('{} {} {}'.format(self.model_name, metric_name.capitalize(), 'train'))
                     axs[plot_idx*2].set_xlabel('Epochs')
-                    axs[plot_idx*2].plot(self.training_log_df[metric_name])
+                    axs[plot_idx*2].plot(self.training_log[metric_name])
                     axs[plot_idx*2+1].set_title('{} {} {}'.format(self.model_name, metric_name.capitalize(), 'test'))
                     axs[plot_idx*2+1].set_xlabel('Epochs')
-                    axs[plot_idx*2+1].plot(self.testing_log_df[metric_name])
+                    axs[plot_idx*2+1].plot(self.testing_log[metric_name])
                 else:
                     axs[plot_idx].set_title('{} {}'.format(self.model_name, metric_name.capitalize()))
                     axs[plot_idx].set_xlabel('Epochs')
-                    axs[plot_idx].plot(self.training_log_df[metric_name])
-                    axs[plot_idx].plot(self.testing_log_df[metric_name])
+                    axs[plot_idx].plot(self.training_log[metric_name])
+                    axs[plot_idx].plot(self.testing_log[metric_name])
                     axs[plot_idx].legend(['Train', 'Test'])
 
             if save_plot:
@@ -483,8 +527,7 @@ class SegmentationTrainer(TorchSupervisedTrainer):
         В случае сегментации НАДО дополнително обрабатывать выходы
         '''
         true, pred = batch_results['true'].reshape(-1), batch_results['pred'].reshape(-1)
-        #print('DEBUG!')
-        #print(true, pred)
+
         ret_results = {}
         ret_results['loss'] = batch_results['loss']
         ret_results['confusion_matrix'] = self.metrics_dict['confusion_matrix'](true, pred)
@@ -515,7 +558,6 @@ class SegmentationTrainer(TorchSupervisedTrainer):
             except TypeError:
                 cumulative_confusion = batch_results['confusion_matrix']      
         
-        #print(cummulative_loss)
         loss = cummulative_loss/dataset_size
         # Строка для вывода на экран
         # Словарь, который мы будем добавлять в лог
@@ -528,7 +570,6 @@ class SegmentationTrainer(TorchSupervisedTrainer):
         for metric_name in self.metrics_dict.keys():
             
             if not (metric_name.lower() == 'loss' or metric_name.lower() == 'confusion_matrix'):
-                #print(metric_name)
                 metric = self.metrics_dict[metric_name]
                 if type(metric) is dict:
                     metric_func = metric['metric']
@@ -556,109 +597,41 @@ class RNN_trainer(TorchSupervisedTrainer):
         1: 'AGGR'
     }
     
-    def __init__(
-            self,
-            model: nn.Module,
-            model_name: str,
-            train_loader: torch.utils.data.DataLoader,
-            test_loader: torch.utils.data.DataLoader,
-            metrics_dict: dict, # словарь с функциями, вычисляющими метрики
-            metrics_to_display: list, # список метрик выводимых на экран в ходе обучения
-            device: torch.device,
-            criterion,
-            optimizers_list: list, # список всех возможных оптимизаторов
-            lr_schedulers_list=[None], # список всех возможных планировщиков скорости обучения, по умолчанию, без планировщиков
-            saving_dir = 'saving_dir',
-            checkpoint_criterion='loss',
-            train_dataset = None
-        ):
+    
 
-        super().__init__(
-            model,
-            model_name,
-            train_loader,
-            test_loader,
-            metrics_dict, # словарь с функциями, вычисляющими метрики
-            metrics_to_display, # список метрик выводимых на экран в ходе обучения
-            device,
-            criterion,
-            optimizers_list, # список всех возможных оптимизаторов
-            lr_schedulers_list, # список всех возможных планировщиков скорости обучения, по умолчанию, без планировщиков
-            saving_dir,
-            checkpoint_criterion
-        )
-
-        self.path_to_train_root = os.path.split(self.train_loader.dataset.path_to_data_root)[0]
-        self.train_dataset = train_dataset
-
-    def train(self, epoch_num):
-        end_epoch = self.start_epoch+epoch_num
-        for epoch_idx in range(self.start_epoch, end_epoch):
-            print('Train epoch # {} of {} epochs...'.format(epoch_idx, end_epoch-1))
-            
-            # создаем доп. датасет для своей эпохи
-            path_to_train_data_root = os.path.join(self.path_to_train_root, str(epoch_idx))
-            #train_dataset = self.train_dataset(path_to_data_root=path_to_train_data_root)
-
-            #self.train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=0)
-            self.train_loader.dataset.path_to_data_root = path_to_train_data_root
-            #t0 = time.time()
-            self.model.train()
-            # список, куда будем записывать промежуточные результаты эпохи
-            train_raw_result_list = []
-            for batch in tqdm(self.train_loader):
-                # обучение на одном батче
-                train_results = self.compute_batch_results(self.train_step(batch))
-                train_raw_result_list.append(train_results)
-
-            #t1 = time.time()
-            #print('passed in {:.3f} seconds'.format(t1 - t0))
-            # парсим результаты на обучающей выборке
-            train_results_dict = self.compute_epoch_results(train_raw_result_list, mode='train')
-
-            # выводим обучающие результаты на экран
-            self.print_result(train_results_dict)
-            
-            # сохраняем результат тренировочных метрик эпохи
-            self.training_log_df = pd.concat([self.training_log_df, pd.DataFrame([train_results_dict])], ignore_index=True)
-            
-            # запускаем процедуру тестирования
-            self.test_raw_result_list = self.test()
-            # парсим результаты на тестовой выборке
-            test_results_dict = self.compute_epoch_results(self.test_raw_result_list, mode='test')
-
-            # выводим тестовые результаты на экран
-            self.print_result(test_results_dict)
-
-            # сохраняем результат тестировочных метрик эпохи
-            self.testing_log_df = pd.concat([self.testing_log_df, pd.DataFrame([test_results_dict])], ignore_index=True)
-
-            # сохраняем результаты обучения после каждой итерации
-            self.save_logs()
-
-            # обновляем стартовую эпоху, чтобы иметь возможность восстановить модель и продолжить обучение с
-            #  той эпохи, с которой мы это обучение прекратили
-            self.start_epoch = epoch_idx+1
-
-            # save weights of current step
-            if self.path_to_current_checkpoint is not None:
-                os.remove(self.path_to_current_checkpoint)
-
-            current_weights_name = '{}_current_ep-{}.pt'.format(self.model_name, epoch_idx)
-            self.path_to_current_checkpoint = os.path.join(self.saving_dir, current_weights_name)
-            self.save_checkpoint(self.path_to_current_checkpoint)
-
-            # обновляем каждый планировщик скорости обучения из списка
-            for lr_scheduler in self.lr_schedulers_list:
-                # не обновляем планировщик, если его нет)
-                if lr_scheduler is not None:
-                    lr_scheduler.step()
-            
-            # сохраняем лучшие веса
-            if self.checkpoint_criterion == 'loss':
-                err = test_results_dict[self.checkpoint_criterion]
+    def define_best_criterion(self, checkpoint_criterion):        
+        self.model_names_list = list(self.model.models_dict.keys())
+        best_criterion_dict = {}
+        for model_name in self.model_names_list:
+            if checkpoint_criterion == 'loss':
+                # если контролируем loss, то берем изначально большое значение критерия
+                best_criterion_dict[model_name] = 9999999
+                # функция сравнения текущего значения метрики с лучшим
+                #self.is_best_result = lambda x,y: x<y
             else:
-                err = 1 - test_results_dict[self.checkpoint_criterion]
+                # если контролируем другую метрику (accuracy, recall и т.д.), то берем изначально нулевое значение критерия
+                best_criterion_dict[model_name] = 0
+                # функция сравнения текущего значения метрики с лучшим
+                #self.is_best_result = lambda x,y: x>y
+
+        return best_criterion_dict
+
+    def save_best_weights(self, test_results_dict):        
+        for model_name, test_results in test_results_dict.items():
+            best = self.best_criterion[model_name]
+            err = test_results[self.checkpoint_criterion]
+            
+            if self.checkpoint_criterion == 'loss':
+                if err < best:
+                    print(f'Best results for {model_name} achieved, saving weights...')
+                    self.save_model(model_name)
+                    self.best_criterion[model_name] = err
+            else:
+                if err > best:
+                    print(f'Best results for {model_name} achieved, saving weights...')
+                    self.save_model(model_name)
+                    self.best_criterion[model_name] = err
+            '''
             if err < self.best_criterion:
                 print('BEST RESULTS HAS ACHIEVED, SAVING WEIGHTS')
                 if self.path_to_best_checkpoint is not None:
@@ -671,6 +644,249 @@ class RNN_trainer(TorchSupervisedTrainer):
 
                 #self.save_checkpoint(self.path_to_best_checkpoint)
                 self.best_criterion = err#test_results_dict[self.checkpoint_criterion]
+            '''
 
-            # start testing procedure
-            print('----------------------------------------------')
+    def save_model(self, model_name):
+        if self.path_to_best_checkpoint is not None:
+            if model_name in self.path_to_best_checkpoint:
+                os.remove(self.path_to_best_checkpoint[model_name])
+        else:
+            self.path_to_best_checkpoint = {}
+            
+        best_weights_name = f'{model_name}_best_ep-{self.current_epoch}.pt'
+        path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
+        self.path_to_best_checkpoint[model_name] = path_to_best_checkpoint
+
+        torch.save(self.model.models_dict[model_name].state_dict(), path_to_best_checkpoint)
+        
+
+    def init_log(self):
+        
+        self.training_log = {}
+        self.testing_log = {}
+        for name in self.model.models_dict.keys():
+            self.training_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
+            self.testing_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
+
+    def nn_output_processing(self, pred):
+        '''
+        ПЕРЕПИСЫВЕМАЯ ФУНКЦИЯ
+        функция, выполняющая постобработку выхода нейронной сети
+        pred - словарь с результатами выхода всех нейронных сетей
+        '''
+        pred_labels_dict = {}
+        for name, pred in pred.items():
+            _, pred_labels = torch.max(pred.data, dim=1)
+            pred_labels_dict[name] = pred_labels.detach().cpu().numpy()
+
+        return pred_labels_dict
+    
+    def compute_batch_loss(self, batch_loss, data_size):
+        # специальный метод нужен для того, чтобы мочь обрабатывать множество независимых выходов...
+        # batch_loss - словарь с значением ошибки для каждой нейронной сети
+        batch_loss_dict = {}
+        for name, loss in batch_loss.items():
+            batch_loss_dict[name] = loss.item() * data_size
+        return batch_loss_dict
+    
+    def compute_epoch_results(self, epoch_results_list, mode):
+        '''
+        ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
+        Здесь мы 'парсим' данные, полученные в ходе обучения или тестирования
+        '''
+
+        if mode =='train':
+            dataset_size = self.train_samples_num
+        elif mode == 'test':
+            dataset_size = self.test_samples_num
+        else:
+            raise TypeError('mode should be either \'train\' or \'test\'')
+
+        # process metrics
+        true = []
+        #cummulative_loss = 0
+        # В цикле накапливаем значения всех метрик
+        models_cummulative_loss_dict = {}
+        models_cunmulative_models_preds_dict = {}
+        
+        for batch_results in epoch_results_list:
+            
+            # обработка loss
+            for model_name, loss in batch_results['loss'].items():
+                try:
+                    models_cummulative_loss_dict[model_name] += loss
+                except KeyError:
+                    models_cummulative_loss_dict[model_name] = loss
+            # обработка выходов НС
+            for model_name, pred in batch_results['pred'].items():
+                try:
+                    pred_arr = models_cunmulative_models_preds_dict[model_name]
+                    models_cunmulative_models_preds_dict[model_name] = np.concatenate([pred_arr, pred])#.append(pred)
+                except KeyError:
+                    models_cunmulative_models_preds_dict[model_name] = pred
+                
+            true.append(batch_results['true'])
+
+        
+
+        true = np.concatenate(true)#.reshape(-1)
+        #pred = np.concatenate(pred)#.reshape(-1)
+                
+        #loss = cummulative_loss/dataset_size
+        # Словарь, который мы будем добавлять в лог
+        log_results_dict = {}
+
+        # compute losses for all the models
+        for model_name, loss in models_cummulative_loss_dict.items():
+            log_results_dict[model_name] = {'loss': models_cummulative_loss_dict[model_name] / dataset_size}
+        
+        
+        # Строка для вывода на экран
+        
+        #log_results_dict['loss'] = models_cummulative_loss_dict
+        #log_results_dict['loss'] = self.compute_epoch_loss()
+
+        # compute metrics for all the models
+
+        for model_name, pred in models_cunmulative_models_preds_dict.items():
+            for metric_name in self.metrics_dict.keys():
+                if metric_name.lower() != 'loss':
+                    metric = self.metrics_dict[metric_name]
+                    if type(metric) is dict:
+                        metric_func = metric['metric']
+                        metric_kwargs = metric['kwargs']
+                    else:
+                        metric_func = metric
+                        metric_kwargs = {}
+                    # вычисляем метрику
+                    metric_value = metric_func(true, pred, **metric_kwargs)
+                    # добавляем метрику в словарь под соответствующим именем модли
+                    log_results_dict[model_name][metric_name] = metric_value
+
+        return log_results_dict
+    
+    def print_result(self, result_dict):
+        '''
+        ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
+        '''
+        model_names = list(result_dict.keys())
+
+        
+        metrics_df = pd.DataFrame(columns=model_names,index=self.metrics_to_display)
+        #metrics_string_to_print = ''
+        for model_name in model_names:
+            #metrics_string_to_print += f'{model_name}:\t'
+            model_metrics_dict = {}
+            for metric_name in self.metrics_to_display:
+                
+                metric_value = result_dict[model_name][metric_name]
+                model_metrics_dict[metric_name] = metric_value
+                '''
+                try:
+                    # если metric_value - это вектор, то выводим на экран среднее значение метрики
+                    size = len(metric_value)
+                    metric_value = np.mean(metric_value)
+                except TypeError:
+                    pass
+                
+
+                try:
+                    iter(metric_value)
+                    metrics_string_to_print += f'{metric_name}: ['
+                    for m in metric_value:
+                        if m < 0.001:
+                            metrics_string_to_print += '{:.2e}, '.format(m)
+                        else:
+                            metrics_string_to_print += '{:.3f}, '.format(m)
+                    metrics_string_to_print += ']'
+                except TypeError:
+                    if metric_value < 0.001:
+                        # для краткости выводим очень малые чила в экспоненциальной записи
+                        metrics_string_to_print += '{}: {:.2e}; '.format(metric_name, metric_value)
+                    else:
+                        metrics_string_to_print += '{}: {:.3f}; '.format(metric_name, metric_value)
+                '''
+            #metrics_string_to_print += '\n'
+            metrics_df[model_name] = model_metrics_dict
+        # выводим метрики на экран
+        #print(metrics_string_to_print)
+        
+        print(metrics_df)
+        print('------------------------------------------')
+
+
+    def update_datasets(self):
+        '''
+        Функция нужна, если на каждой эпохе надо изменять датасеты
+        '''
+        # создаем доп. датасет для своей эпохи
+
+        path_to_train_root = os.path.split(self.train_loader.dataset.path_to_data_root)[0]
+
+        path_to_train_data = os.path.join(path_to_train_root, str(self.current_epoch))
+        
+        self.train_loader.dataset.path_to_data_root = path_to_train_data
+
+    def update_log(self, mode, results_dict):
+        
+        for model_name, results in results_dict.items():
+            if mode.lower() == 'train':
+                self.training_log[model_name] = pd.concat([self.training_log[model_name], pd.DataFrame([results]).fillna(0)], ignore_index=True)
+            elif mode.lower() == 'test':
+                self.testing_log[model_name] = pd.concat([self.testing_log[model_name], pd.DataFrame([results]).fillna(0)], ignore_index=True)
+        
+    def save_logs(self):
+        '''
+        Сохранение результатов обучения
+        '''
+        for name in self.training_log.keys():
+            
+            self.training_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_train_log.csv'))
+            self.testing_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_test_log_.csv'))
+    
+class AudioRNN_trainer(RNN_trainer):
+    def update_datasets(self):
+        pass
+
+    def prepare_current_checkpoint_path(self):
+        if self.path_to_current_checkpoint is not None:
+            shutil.rmtree(self.path_to_current_checkpoint)
+
+        current_checkpoint_name = '{}_current_ep-{}'.format(self.model_name, self.current_epoch)
+        self.path_to_current_checkpoint = os.path.join(self.saving_dir, current_checkpoint_name)
+
+    def save_checkpoint(self, path_to_current_checkpoint):
+        '''
+        Сохранение весов при достижении лучшего результата
+        '''
+        os.makedirs(path_to_current_checkpoint, exist_ok=True)
+        # сохраняем только state_dict модели, т.к. весь класс сохранить нельзя
+        torch.save(self.model.state_dict(), os.path.join(path_to_current_checkpoint, 'model.pt'))
+        # save class attributes
+        saving_dict = {}
+        for attr_name, attr_val in self.__dict__.items():
+            if attr_name != 'model':
+                saving_dict[attr_name] = attr_val
+
+        saving_dict['model'] = None
+
+        with open(os.path.join(path_to_current_checkpoint,'trainer_params.pkl'), 'wb') as fd:
+            pickle.dump(saving_dict, fd)
+
+        # сохраняем атрибуты класса
+
+    def load_checkpoint(self, path_to_checkpoint_dir):
+        if os.path.isdir(self.saving_dir):
+            shutil.rmtree(self.saving_dir)
+        path_to_trainer_params = os.path.join(path_to_checkpoint_dir, 'trainer_params.pkl')
+        with open(path_to_trainer_params, 'rb') as fd:
+            loading_dict = pickle.load(fd)
+
+        for attr_name, attr_val in loading_dict.items():
+            if attr_name != 'model':
+                self.__dict__[attr_name] = attr_val
+        
+        path_to_state_dict = os.path.join(path_to_checkpoint_dir, 'model.pt')
+        self.model.load_state_dict(torch.load(path_to_state_dict, map_location=self.device))
+
+

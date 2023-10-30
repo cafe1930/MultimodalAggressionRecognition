@@ -1,4 +1,5 @@
 import torchvision
+import torchaudio
 from torchvision.transforms import v2
 #import torchaudio
 from torchvision import tv_tensors
@@ -83,8 +84,73 @@ class RnnFeaturesDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         data = self.read_data_file(idx)
         label = self.get_label(idx)
-        return data, label    
+        return data, label
 
+class AudioDatasetWav(torch.utils.data.Dataset):
+    label_dict = {'AGGR': 1, 'NOAGGR': 0}
+    def __init__(self, path_to_data_root, target_sample_rate, target_time_length, device):
+        super().__init__()
+        self.path_to_data_root = path_to_data_root
+        self.target_sample_rate = target_sample_rate
+        self.target_time_length = target_time_length
+        self.device = device
+        self.data_names_list = [n for n in os.listdir(path_to_data_root) if n.endswith('.wav')]
+
+    def get_label(self, idx):
+        #A structure of a file name is xxx_._yyy_._LABEL.npy
+        #name = os.path.split(self.paths_to_data_list[idx])[-1]
+        name = self.data_names_list[idx]
+        return self.label_dict[name.split('_._')[-1].split('.')[0]]
+
+    def read_data_file(self, idx):
+        #name = self.files_list[idx]
+        #path_to_data_file = os.path.join(self.path_to_data_files, name)
+        name = self.data_names_list[idx]
+        path_to_data = os.path.join(self.path_to_data_root, name)
+        #data = torch.as_tensor(np.load(path_to_data), dtype=torch.float32)
+        waveform, sample_rate = torchaudio.load(path_to_data)
+        #waveform = waveform[0].to('cuda')
+        if sample_rate != self.target_sample_rate:
+            data = torchaudio.functional.resample(waveform[0].to(self.device), sample_rate, self.target_sample_rate)
+        #data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32)
+        #tv_data = tv_tensors.Video(data, device=self.device)
+        if len(data)/self.target_time_length != self.target_sample_rate:
+            target_samples = self.target_sample_rate*self.target_time_length - len(data)
+            data = torch.cat([data, torch.zeros((target_samples,)).to(self.device)])
+            
+        return data#[0]
+    
+    def __len__(self):
+        return len(self.data_names_list)
+    
+    def __getitem__(self, idx):
+        data = self.read_data_file(idx)
+        label = self.get_label(idx)
+        return data, label
+    
+class AudioDatasetPt(AudioDatasetWav):
+    def __init__(self, path_to_data_root, target_sample_rate, target_time_length, device):
+        super().__init__(path_to_data_root, target_sample_rate, target_time_length, device)
+        self.data_names_list = [n for n in os.listdir(path_to_data_root) if n.endswith('.pt')]
+
+    def read_data_file(self, idx):
+        #name = self.files_list[idx]
+        #path_to_data_file = os.path.join(self.path_to_data_files, name)
+        name = self.data_names_list[idx]
+        path_to_data = os.path.join(self.path_to_data_root, name)
+        #data = torch.as_tensor(np.load(path_to_data), dtype=torch.float32)
+        return torch.load(path_to_data)
+        waveform, sample_rate = torchaudio.load(path_to_data)
+        #waveform = waveform[0].to('cuda')
+        if sample_rate != self.target_sample_rate:
+            data = torchaudio.functional.resample(waveform[0].to(self.device), sample_rate, self.target_sample_rate)
+        #data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32)
+        #tv_data = tv_tensors.Video(data, device=self.device)
+        if len(data)/self.target_time_length != self.target_sample_rate:
+            target_samples = self.target_sample_rate*self.target_time_length - len(data)
+            data = torch.cat([data, torch.zeros((target_samples,)).to(self.device)])
+            
+        return data#[0]
 
 if __name__ == '__main__':
     #torchvision.models.video.R3D_18_Weights.KINETICS400_V1

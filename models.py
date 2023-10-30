@@ -82,38 +82,32 @@ class AudioExtractor(nn.Module):
 
         return torch.stack(features_list).permute((1, 0, 2)).detach().cpu().numpy()
 
-class RNN(nn.Module):
-    def __init__(self, rnn_type, rnn_layers_num, input_dim, hidden_dim, class_num):
+class AverageFeatureSequence(nn.Module):
+    def __init__(self, hidden_size):
         super().__init__()
-        self.hidden_dim = hidden_dim
+        self.hidden_size = hidden_size
 
-        # The LSTM takes word embeddings as inputs, and outputs hidden states
-        # with dimensionality hidden_dim.
-        #self.rnn = nn.Sequential(
-        #    rnn_type(input_dim, hidden_dim, batch_first=True),
-        #    *[rnn_type(hidden_dim, hidden_dim, batch_first=True) for i in range(rnn_layers_num-1)]
-        #    )
-        
-        self.rnn = nn.ModuleList(
-            [rnn_type(input_dim, hidden_dim, batch_first=True)]+[rnn_type(hidden_dim, hidden_dim, batch_first=True) for i in range(rnn_layers_num-1)])
+    def forward(self, x):
+        return x.mean(dim=1).unsqueeze(1), None
+
+class FeatureSequenceProcessing(nn.Module):
+    def __init__(self, sequence_nn_dict, class_num):
+        super().__init__()
+        self.sequence_nn = sequence_nn_dict['model'](**sequence_nn_dict['kwargs'])
+        self.hidden_size = sequence_nn_dict['kwargs']['hidden_size']
 
         # The linear layer that maps from hidden state space to tag space
         self.output_classifier = nn.Sequential(
-            nn.Linear(hidden_dim, 256),
+            nn.Linear(self.hidden_size, 256),
             nn.ReLU(),
             nn.Dropout(),
             nn.Linear(256, class_num)
         )
 
     def forward(self, sequence):
-        #embeds = self.word_embeddings(sentence)
-        #lstm_out, _ = self.rnn()
-        for rnn in self.rnn:
-            sequence, _ = rnn(sequence)
-    
-        tag_space = self.output_classifier(sequence[:,-1,:])
-        #tag_scores = F.log_softmax(tag_space, dim=1)
-        return tag_space#, _
+        sequence, _ = self.sequence_nn(sequence)
+        preds = self.output_classifier(sequence[:,-1,:])
+        return preds
 
 class VideoAverageFeatures(nn.Module):
     def __init__(self, input_dim, class_num):
@@ -128,6 +122,109 @@ class VideoAverageFeatures(nn.Module):
     def forward(self, x):
         return self.output_classifier(x.mean(dim=1))
     
+class EmbeddingLayer(nn.Module):
+    def __init__(self, input_size, output_size):
+        super().__init__()
+        self.embedding = nn.Sequential(
+            nn.Linear(input_size, output_size),
+            nn.ReLU()
+        )
+    def forward(self, x):
+        batch_size = x.size(0)
+        sequence_length = x.size(1)
+        output = self.embedding(x.view(batch_size*sequence_length, -1))
+        return output.view(batch_size, sequence_length, -1)
+    
+class VideoMultiNN(nn.Module):
+    def __init__(self, models_dict):
+        super().__init__()
+        #self.extractor_dict = nn.ModuleDict(extractor_dict)
+        #self.extractor_dict.eval()
+
+        #for name, model in rnn_dict.items():
+        #    rnn_dict[name] = model['model'](**model['kwargs'])
+
+        self.models_dict = nn.ModuleDict(models_dict)
+
+        #self.embedding = EmbeddingLayer(imput_size, rnn_size)
+
+        
+    def get_models_names(self):
+        return [name for name in self.models_dict.keys()]
+
+    def forward(self, x):
+        #return features
+        output_dict = {}
+        for name, model in self.models_dict.items():
+
+            output_dict[name] = model(x) 
+        return output_dict
+    
+class AudioMultiNN(nn.Module):
+    def __init__(self, models_dict, extractor_dict):
+        super().__init__()
+        self.extractor_dict = nn.ModuleDict(extractor_dict)
+        self.extractor_dict.eval()
+
+        #for name, model in rnn_dict.items():
+        #    rnn_dict[name] = model['model'](**model['kwargs'])
+
+        self.models_dict = nn.ModuleDict(models_dict)
+
+    def get_models_names(self):
+        return [extractor_name for extractor_name in self.extractor_dict.keys()], [name for name in self.models_dict.keys()]
+
+    def forward(self, x):
+        with torch.no_grad():
+            for name, model in self.extractor_dict.items():
+                features, _ = model.extract_features(x)
+            #features, _ = self.extractor.extract_features(x)
+
+        #return features
+        output_dict = {}
+        for name, model in self.models_dict.items():
+            output_dict[name] = model(features[-1]) 
+        return output_dict
+
+class LossesDict(dict):
+    def backward(self):
+        for name, loss in self.items():
+            loss.backward()
+
+
+class MultiCrossEntropyLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output_dict, target):
+        losses_dict = LossesDict()
+        for name, preds in output_dict.items():
+            losses_dict[name] = self.criterion(preds, target)
+
+        return losses_dict
+    
+    
+class AverageFeatureSequence(nn.Module):
+    def __init__(self, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+
+    def forward(self, x):
+        return x.mean(dim=1).unsqueeze(1), None
+
+
+class MultiCrossEntropyLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output_dict, target):
+        losses_dict = LossesDict()
+        for name, preds in output_dict.items():
+            losses_dict[name] = self.criterion(preds, target)
+
+        return losses_dict
 
 
 if __name__ == '__main__':

@@ -4,7 +4,6 @@ import torchvision
 
 from sklearn.model_selection import train_test_split
 
-from models import RNN, VideoAverageFeatures
 from tqdm import tqdm
 
 from sklearn import metrics
@@ -25,6 +24,7 @@ import argparse
 
 from datasets import RnnFeaturesDataset
 from trainer import RNN_trainer
+from models import VideoMultiNN, FeatureSequenceProcessing, VideoAverageFeatures, AverageFeatureSequence, MultiCrossEntropyLoss
 
 if __name__ == '__main__':
 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
         '--path_to_dataset',
         r'I:\AVABOS\video_squences_r3d',
         '--class_num', '2',
-        '--epoch_num', '2000',
+        '--epoch_num', '10',
         '--batch_size', '128']
     
     
@@ -63,14 +63,13 @@ if __name__ == '__main__':
     path_to_checkpoint = args.path_to_checkpoint
     epoch_num = int(args.epoch_num)
     class_num = args.class_num
+    batch_size = int(args.batch_size)
     
     if resume_training == True:
         if path_to_checkpoint is None:
             raise ValueError('--path_to_checkpoint flag must be specified if --resume_training flag')
  
     #datasize_size = len(names_list) // 2
-
-    batch_size=128
 
     path_to_train_data_root = os.path.join(path_to_dataset_root, 'train', '0')
     path_to_test_data_root = os.path.join(path_to_dataset_root, 'test')
@@ -86,19 +85,54 @@ if __name__ == '__main__':
     
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
-    '''
-    model = RNN(
-        rnn_type=nn.GRU,
-        rnn_layers_num=1,
-        input_dim=512,
-        hidden_dim=512,
-        class_num=2)
-    '''
-    model = VideoAverageFeatures(
-        input_dim=512,
-        class_num=2
-    )
-    model_name = 'R3D_avg'
+    
+    
+    # описание архитектур всех обучаемых рекуррентных нейросетей для обертки FeatureSequenceProcessing
+    input_size = 512 # определяется размером вектора признаков, получаемого с экстрактора
+    hidden_size = 512 # не будет работать, если будет более двух слоев rnn
+    rnn_dict = {
+        'LSTM_1L': {
+            'model': nn.LSTM,
+            'kwargs': {
+                'input_size':input_size,
+                'hidden_size':hidden_size,
+                'num_layers':1,
+                'bias':True,
+                'batch_first':True,
+                'dropout':0,
+                'bidirectional':False,
+                'proj_size':0
+            }
+        },
+        'GRU_1L': {
+            'model': nn.GRU,
+            'kwargs': {
+                'input_size':input_size,
+                'hidden_size':hidden_size,
+                'num_layers':1,
+                'bias':True,
+                'batch_first':True,
+                'dropout':0,
+                'bidirectional':False
+            }
+        },
+        'Avg_features': {
+            'model': AverageFeatureSequence,
+            'kwargs': {'hidden_size':hidden_size}
+        }
+    }
+    
+    # словарь с моделями-обертками FeatureSequenceProcessing, включающими, помимо RNN, еще и выходной классификатор
+    models_dict = {}
+    for name, model in rnn_dict.items():
+        models_dict[name] = FeatureSequenceProcessing(model, class_num=2)
+
+    # имя модели соответствует имени экстрактора признаков
+    model_name = 'R3D'
+
+    model = VideoMultiNN(models_dict=models_dict)
+    #print(model)
+    #print(model(torch.randn(1, 19, input_size)))
 
     #for l, d in tqdm(train_loader):
     #   pass
@@ -118,7 +152,8 @@ if __name__ == '__main__':
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
-    criterion = nn.CrossEntropyLoss()
+    #criterion = nn.CrossEntropyLoss()
+    criterion = MultiCrossEntropyLoss()
 
     metrics_dict = {
         'loss': None,
@@ -128,7 +163,19 @@ if __name__ == '__main__':
 
     metrics_to_dispaly = ['loss', 'accuracy', 'UAR']
 
-    
+    # DEBUG
+    '''
+    optimizer.zero_grad()
+    bs = 1
+    pred = model(torch.randn(bs, 19, input_size).to(device))
+    target = torch.randint(0, class_num, (bs, )).to(device)
+    loss = criterion(pred, target)
+    loss.backward()
+    optimizer.step()
+    print(loss)
+    exit()
+    '''
+        
 
     if resume_training:
         trainer = torch.load(path_to_checkpoint)
@@ -136,17 +183,17 @@ if __name__ == '__main__':
         #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
     else:
         trainer = RNN_trainer(
-        model=model,
-        model_name=model_name,
-        train_loader=train_loader,
-        test_loader=test_loader,
-        metrics_dict=metrics_dict,
-        metrics_to_display=metrics_to_dispaly,
-        criterion=criterion,
-        optimizers_list=[optimizer],
-        checkpoint_criterion='UAR',
-        device=device,
-        train_dataset=RnnFeaturesDataset)
+            model=model,
+            model_name=model_name,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            metrics_dict=metrics_dict,
+            metrics_to_display=metrics_to_dispaly,
+            criterion=criterion,
+            optimizers_list=[optimizer],
+            checkpoint_criterion='UAR',
+            device=device
+            )
 
 
     #print(trainer.start_epoch)
@@ -155,8 +202,8 @@ if __name__ == '__main__':
     trainer.train(epoch_num-trainer.start_epoch)
 
     #print(segmentation_trainer.testing_log_df['mean IoU'])
-    epoch_idx = trainer.testing_log_df['accuracy'].astype(float).argmax()
+    #epoch_idx = trainer.testing_log_df['accuracy'].astype(float).argmax()
 
-    best_acc = trainer.testing_log_df['accuracy'].astype(float).max()
+    #best_acc = trainer.testing_log_df['accuracy'].astype(float).max()
 
-    print('Best Accuracy for {} is {} on {} epoch'.format(model_name, best_acc, epoch_idx))
+    #print('Best Accuracy for {} is {} on {} epoch'.format(model_name, best_acc, epoch_idx))
