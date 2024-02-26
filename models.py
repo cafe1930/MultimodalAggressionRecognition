@@ -188,7 +188,7 @@ class AudioMultiNN(nn.Module):
     def __init__(self, models_dict, extractor_dict):
         super().__init__()
         self.extractor_dict = nn.ModuleDict(extractor_dict)
-        self.extractor_dict = nn.ModuleDict(extractor_dict)
+        
         self.extractor_dict.eval()
 
         #for name, model in rnn_dict.items():
