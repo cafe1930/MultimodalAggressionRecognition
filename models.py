@@ -250,6 +250,44 @@ class MultiCrossEntropyLoss(nn.Module):
             losses_dict[name] = self.criterion(preds, target)
 
         return losses_dict
+    
+
+class R3DWithBboxes(nn.Module):
+    def __init__(self, class_num, alpha=0.4):
+        super().__init__()
+        self.alpha = alpha
+        
+        self.extractor = nn.ModuleDict()
+        for name, module in torchvision.models.video.r3d_18().named_children():
+            if 'layer' in name or 'stem' in name:
+                self.extractor[name] = module
+        self.output_classifier = nn.Sequential(
+            nn.AdaptiveAvgPool3d(1),
+            nn.Flatten(),
+            nn.Linear(512, 128),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(128, class_num)
+        )
+
+    def forward(self, data):
+        frames, mask = data
+        for name, module in self.extractor.items():
+            if mask.shape[2:] != frames.shape[2:]:
+                mask = nn.functional.interpolate(mask, frames.shape[2:])
+            masked_frames = (1-self.alpha)*frames + self.alpha*mask
+            frames = module(masked_frames)
+        result = self.output_classifier(frames)
+
+        return result
+    
+class R3D(R3DWithBboxes):
+    def forward(self, frames):
+        for name, module in self.extractor.items():
+            frames = module(frames)
+        result = self.output_classifier(frames)
+
+        return result
 
 
 if __name__ == '__main__':

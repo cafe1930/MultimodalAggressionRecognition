@@ -120,7 +120,12 @@ class TorchSupervisedTrainer:
         ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
         '''
         # отправляем данные на вычислительное устройство
-        data, true_vals = batch[0].to(self.device), batch[1].to(self.device)
+        data, true_vals = batch[0], batch[1]
+        true_vals = true_vals.to(self.device)
+        if isinstance(data, list):
+            data = [d.to(self.device) for d in data]
+        else:
+            data = data.to(self.device)
         # стандартные операции:
         # 1. Обнуление градиентов для всех задействованных оптимизаторов
         for opt in self.optimizers_list:
@@ -168,7 +173,12 @@ class TorchSupervisedTrainer:
         '''
         # Шаг тестироавания
         # отправляем данные на вычислительное устройство
-        data, true_vals = batch[0].to(self.device), batch[1].to(self.device)
+        data, true_vals = batch[0], batch[1]
+        true_vals = true_vals.to(self.device)
+        if isinstance(data, list):
+            data = [d.to(self.device) for d in data]
+        else:
+            data = data.to(self.device)
         # Прямое распространение
         pred = self.model(data)
         # Прямое распространение
