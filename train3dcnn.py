@@ -47,7 +47,6 @@ if __name__ == '__main__':
         '--epoch_num', '100',
         '--batch_size', '8']
     
-    
     args = parser.parse_args(sample_args)
 
     path_to_dataset_root = args.path_to_dataset
@@ -78,8 +77,10 @@ if __name__ == '__main__':
                         )
 
     test_bboxes_transform = v2.Compose([
-                        NormalizeBboxes(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                        ResizeBboxes((112, 112))]
+                        ResizeBboxes((112, 112)),
+                        CreateBboxesMasks(),
+                        NormalizeBboxes(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                        ]
                         )
     
     train_transform = v2.Compose([
@@ -137,11 +138,10 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'R3D'
+    model_name = 'R3D-bboxes'
 
-    model = R3D(4)
+    model = R3DWithBboxes(4)
     
-
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters())
@@ -162,8 +162,6 @@ if __name__ == '__main__':
 
     metrics_to_dispaly = ['loss', 'accuracy', 'UAR']
 
-        
-
     if resume_training:
         trainer = torch.load(path_to_checkpoint)
         #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
@@ -172,13 +170,13 @@ if __name__ == '__main__':
         trainer = TorchSupervisedTrainer(
             model=model,
             model_name=model_name,
-            train_loader=train_dataloader,
-            test_loader=test_dataloader,
+            train_loader=train_bboxes_dataloader,
+            test_loader=test_bboxes_dataloader,
             metrics_dict=metrics_dict,
             metrics_to_display=metrics_to_dispaly,
             criterion=criterion,
             optimizers_list=[optimizer],
-            checkpoint_criterion='UAR',
+            checkpoint_criterion='accuracy',
             device=device
             )
 
