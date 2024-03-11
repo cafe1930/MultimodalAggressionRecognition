@@ -145,7 +145,11 @@ class TorchSupervisedTrainer:
 
         # Вычисление суммарной ошибки на батче
         #ret_loss = loss.item() * data.size(0)
-        ret_loss = self.compute_batch_loss(loss, data.size(0))
+        if isinstance(data, list):
+            size = data[0].size(0)
+        else:
+            size = data.size(0)
+        ret_loss = self.compute_batch_loss(loss, size)
         # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)
         batch_results_dict = self.create_batch_results_dict(ret_loss, pred_vals, true_vals)
@@ -185,7 +189,11 @@ class TorchSupervisedTrainer:
         loss = self.criterion(pred, true_vals)
         # Вычисление суммарной ошибки на батче
         #ret_loss = loss.item() * data.size(0)
-        ret_loss = self.compute_batch_loss(loss, data.size(0))
+        if isinstance(data, list):
+            size = data[0].size(0)
+        else:
+            size = data.size(0)
+        ret_loss = self.compute_batch_loss(loss, size)
         # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)
         batch_results_dict = self.create_batch_results_dict(ret_loss, pred_vals, true_vals)
@@ -368,12 +376,17 @@ class TorchSupervisedTrainer:
             #  той эпохи, с которой мы это обучение прекратили
             self.start_epoch = epoch_idx+1
 
-            # сохраняем лучшие веса - надо выполнить раньше save_checkpoint, чтобы сохранились пути до лучших весов
-            self.save_best_weights(test_results_dict)
+            
 
             # save weights of current step
             self.prepare_current_checkpoint_path()
+
+            
+           
             self.save_checkpoint(self.path_to_current_checkpoint)
+
+            # сохраняем лучшие веса - надо выполнить раньше save_checkpoint, чтобы сохранились пути до лучших весов
+            self.save_best_weights(test_results_dict)
 
             
             
@@ -383,6 +396,7 @@ class TorchSupervisedTrainer:
             print('----------------------------------------------')
     
     def prepare_current_checkpoint_path(self):
+        
         if self.path_to_current_checkpoint is not None:
             os.remove(self.path_to_current_checkpoint)
 
@@ -402,6 +416,7 @@ class TorchSupervisedTrainer:
             best_weights_name = '{}_best_ep-{}.pt'.format(self.model_name, self.current_epoch)
             self.path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
             # копируем текущие сохраняемые параметры
+            print(f'currennt checkpoint: {self.path_to_current_checkpoint}, best checkpoint: {self.path_to_best_checkpoint}')
             shutil.copy2(self.path_to_current_checkpoint, self.path_to_best_checkpoint)
 
             #self.save_checkpoint(self.path_to_best_checkpoint)
@@ -460,7 +475,6 @@ class TorchSupervisedTrainer:
                         plt.savefig(os.path.join(self.saving_dir, title+'.png'))
                         plt.show()
                         
-
                         title = '{} {} {}'.format(self.model_name, metric_name.capitalize(), 'test')
                         plt.figure(figsize=(6,6),facecolor='white')
                         plt.title(title)
