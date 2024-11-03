@@ -312,7 +312,10 @@ class TorchSupervisedTrainer:
         Сохранение весов при достижении лучшего результата
         '''
         # сохраняем весь класс целтиком, чтобы не париться
-        torch.save(self, path_to_saving_weights)
+        try:
+            torch.save(self, path_to_saving_weights)
+        except:
+            torch.save(self.model.state_dict(), path_to_saving_weights)
 
     def save_logs(self):
         '''

@@ -307,29 +307,39 @@ class AudioDatasetWav(torch.utils.data.Dataset):
         label = self.get_label(idx)
         return data, label
     
-class AudioDatasetPt(AudioDatasetWav):
-    def __init__(self, path_to_data_root, target_sample_rate, target_time_length, device):
-        super().__init__(path_to_data_root, target_sample_rate, target_time_length, device)
-        self.data_names_list = [n for n in os.listdir(path_to_data_root) if n.endswith('.pt')]
+class PtAudioDataset(torch.utils.data.Dataset):
+    label_dict = {'AGGR': 1, 'NOAGGR': 0}
+    def __init__(self, paths_to_data_list, augmentation_transforms, device):
+        super().__init__()
+        self.paths_to_data_list = paths_to_data_list
+        #self.path_to_audios_root = path_to_audios_root
+        self.augmentation_transforms = augmentation_transforms
+
+        self.device = device
 
     def read_data_file(self, idx):
-        #name = self.files_list[idx]
-        #path_to_data_file = os.path.join(self.path_to_data_files, name)
-        name = self.data_names_list[idx]
-        path_to_data = os.path.join(self.path_to_data_root, name)
-        #data = torch.as_tensor(np.load(path_to_data), dtype=torch.float32)
-        return torch.load(path_to_data)
-        waveform, sample_rate = torchaudio.load(path_to_data)
-        #waveform = waveform[0].to('cuda')
-        if sample_rate != self.target_sample_rate:
-            data = torchaudio.functional.resample(waveform[0].to(self.device), sample_rate, self.target_sample_rate)
-        #data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32)
-        #tv_data = tv_tensors.Video(data, device=self.device)
-        if len(data)/self.target_time_length != self.target_sample_rate:
-            target_samples = self.target_sample_rate*self.target_time_length - len(data)
-            data = torch.cat([data, torch.zeros((target_samples,)).to(self.device)])
-            
-        return data#[0]
+        audio_data = torch.load(self.paths_to_data_list[idx]).to(self.device)
+        return audio_data
+    
+    def get_label(self, idx):  
+        #A structure of a file name is u_v_x_y_z_LABEL.npy
+        name = os.path.split(self.paths_to_data_list[idx])[-1]
+        name = '.'.join(name.split('.')[:-1])
+        split_name = name.split('_')
+        label = self.label_dict[split_name[-1]]
+        return torch.as_tensor(label, dtype=torch.int64, device=self.device)
+    
+    def __len__(self):
+        return len(self.paths_to_data_list)
+    
+    def __getitem__(self, idx):
+        data = self.read_data_file(idx)
+        data = self.augmentation_transforms(data)
+        label = self.get_label(idx)
+        #return data
+        return data, label
+    
+    
     
 
 class NumpyVideoBboxesDataset2Classes(NumpyVideoExtractorDataset):
@@ -397,7 +407,6 @@ class VideoBboxesDataset(torch.utils.data.Dataset):
         label = self.get_label(idx)
         #return data
         return (data.permute((1, 0, 2, 3)), bboxes), label
-    
 
 class VideoDataset(VideoBboxesDataset):
     def read_data_file(self, idx):
