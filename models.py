@@ -9,6 +9,10 @@ class PermuteModule(nn.Module):
 
 class ExtractorBase(nn.Module):
     def __init__(self, frame_num, window_size):
+        '''
+        frame_num - общее количество кадров в видео
+        window_size - размер обрабатываемого окна в кадрах
+        '''
         super().__init__()
         self.frame_num = frame_num
         self.window_size = window_size
@@ -23,7 +27,7 @@ class ExtractorBase(nn.Module):
             features = self.extractor(x[:,:,i:i+self.window_size,:,:])
             features_list.append(features)
 
-        return torch.stack(features_list).permute((1, 0, 2)).detach().cpu().numpy()
+        return torch.stack(features_list).permute((1, 0, 2))#.detach().cpu().numpy()
         #return torch.stack(features_list).detach().cpu()
 
 
@@ -80,7 +84,7 @@ class AudioExtractor(nn.Module):
             features = self.extractor(x[:,:,i:i+self.window_size,:,:])
             features_list.append(features)
 
-        return torch.stack(features_list).permute((1, 0, 2)).detach().cpu().numpy()
+        return torch.stack(features_list).permute((1, 0, 2))#.detach().cpu().numpy()
 
 class AverageFeatureSequence(nn.Module):
     def __init__(self, hidden_size):
@@ -88,7 +92,15 @@ class AverageFeatureSequence(nn.Module):
         self.hidden_size = hidden_size
 
     def forward(self, x):
-        return x.mean(dim=1).unsqueeze(1), None
+        return x.mean(dim=1).unsqueeze(1), None # WTF?
+    
+class SequenceAverageFeatures(nn.Module):
+    def __init__(self, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+
+    def forward(self, x):
+        return x.mean(dim=1)#.unsqueeze(1)
 
 class FeatureSequenceProcessing(nn.Module):
     def __init__(self, sequence_nn_dict, class_num):
@@ -288,17 +300,44 @@ class R3D(R3DWithBboxes):
         result = self.output_classifier(frames)
 
         return result
+    
+class TransformerSequenceProcessor(nn.Module):
+    def __init__(self, extractor_model, hidden_size, transformer_layer_num, transformer_head_num, class_num):
+        super().__init__()
+        self.feature_extractor = extractor_model
+        transformer_layer = nn.TransformerEncoderLayer(d_model=hidden_size, nhead=transformer_head_num, batch_first=True)
+        self.transformer_squence_processing = nn.TransformerEncoder(
+            transformer_layer,
+            num_layers=transformer_layer_num,
+            norm=nn.LayerNorm(hidden_size))
+        
+        self.average_features_sequence = SequenceAverageFeatures(hidden_size=hidden_size)
+        self.classifier = nn.Sequential(
+            nn.Linear(768, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, class_num)
+            )
+
+    def forward(self, x, ret_type='classifier'):
+        with torch.no_grad():
+            features = self.feature_extractor(x)
+        transformer_sequence_features = self.transformer_squence_processing(features)
+        avg_features = self.average_features_sequence(transformer_sequence_features)
+        
+        classifier_out = self.classifier(avg_features)
+        if ret_type == 'classifier':
+            return classifier_out
+        elif ret_type == 'features':
+            return transformer_sequence_features
+        elif ret_type == 'all':
+            return classifier_out, transformer_sequence_features
 
 
 if __name__ == '__main__':
-    size = (10, 19, 1024)
-    rnn = RNN(
-        rnn_type=nn.GRU,
-        rnn_layers_num=1,
-        input_dim=1024,
-        hidden_dim=512,
-        class_num=2
-    ).cuda()
-    
-    out = rnn(torch.randn(*size).cuda())
-    print(out.shape)
+    video_extractor = Swin3d_T_extractor(frame_num=256, window_size=16).cuda()
+
+    video = torch.randn((1, 3, 256, 112, 112)).cuda()
+    print(video_extractor)
+    #out = video_extractor(video)
+    #print(out.shape)

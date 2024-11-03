@@ -142,12 +142,11 @@ class NumpyVideoExtractorDataset(torch.utils.data.Dataset):
         self.device = device
         #self.files_list = self.index_files()
     
-    def get_label(self, idx):
-        
+    def get_label(self, idx):  
         #A structure of a file name is xxx_._yyy_._LABEL.npy
         name = os.path.split(self.paths_to_data_list[idx])[-1]
-        #return torch.as_tensor(self.label_dict[name.split('_._')[-1].split('.')[0]], dtype=torch.int64, device=self.device)
-        return name
+        return torch.as_tensor(self.label_dict[name.split('_._')[-1].split('.')[0]], dtype=torch.int64, device=self.device)
+        #return name
 
     def read_data_file(self, idx):
         #name = self.files_list[idx]
@@ -164,7 +163,74 @@ class NumpyVideoExtractorDataset(torch.utils.data.Dataset):
         data = self.augmentation_transforms(data)
         label = self.get_label(idx)
         #return data
-        return label, data.permute((1, 0, 2, 3))
+        return data.permute((1, 0, 2, 3)), label
+    
+class PtVideoDataset(NumpyVideoExtractorDataset):
+    def read_data_file(self, idx):
+        data = torch.load(self.paths_to_data_list[idx])
+        tv_data = tv_tensors.Video(data, device=self.device)
+        return tv_data
+    
+    def get_label(self, idx):  
+        #A structure of a file name is u_v_x_y_z_LABEL.npy
+        name = os.path.split(self.paths_to_data_list[idx])[-1]
+        name = '.'.join(name.split('.')[:-1])
+        split_name = name.split('_')
+        label = self.label_dict[split_name[-1]]
+        return torch.as_tensor(label, dtype=torch.int64, device=self.device)
+
+
+class AppendVideoZeroFrames(nn.Module):
+    def __init__(self, target_frame_num:int):
+        '''
+        Append a number of zero-valued frames to a processing video
+        A number of appending frames is defined as a difference between traget_frame_num and frame_num of imput video
+        '''
+        super().__init__()
+        self.target_frame_num = target_frame_num
+
+    def forward(self, video:torch.tensor):
+        frames, channels, rows, cols = video.shape
+        video_dtype = video.dtype
+        appending_frame_num = self.target_frame_num - frames
+        if appending_frame_num <= 0:
+            return video[:self.target_frame_num]
+        #if appending_frame_num >= self.target_frame_num:
+        #    return video[:self.target_frame_num]
+        return torch.cat([video, torch.zeros((appending_frame_num, channels, rows, cols), dtype=video_dtype)])
+    
+
+class AppendZeroValues(nn.Module):
+    def __init__(self, target_size:torch.Size):
+        '''
+        Append a number of zero-valued features to a processing tensor
+        A number of appending features is defined as a difference between target_size and size of imput tensor
+        '''
+        super().__init__()
+        self.target_size = target_size
+
+
+    def forward(self, input_tensor:torch.tensor):
+        size_tensor = torch.tensor(input_tensor.shape)
+        target_size_tensor = torch.tensor(self.target_size)
+        dtype = input_tensor.dtype
+        device = input_tensor.device
+
+        diff = target_size_tensor - size_tensor
+        
+        features_to_append_num = diff[0]
+        if features_to_append_num<=0:
+            return input_tensor[:self.target_size[0]]
+
+        appending_size = target_size_tensor
+        appending_size[0] = features_to_append_num
+        
+        #if appending_frame_num >= self.target_frame_num:
+        #    return video[:self.target_frame_num]
+        #print(appending_size)
+        #print(input_tensor.shape, torch.zeros(appending_size, dtype=dtype).shape)
+        return torch.cat([input_tensor, torch.zeros(appending_size.tolist(), dtype=dtype, device=device)])
+
 
 class RnnFeaturesDataset(torch.utils.data.Dataset):
     label_dict = {'AGGR': 1, 'NOAGGR': 0}
