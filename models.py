@@ -314,7 +314,7 @@ class TransformerSequenceProcessor(nn.Module):
         
         self.average_features_sequence = SequenceAverageFeatures(hidden_size=hidden_size)
         self.classifier = nn.Sequential(
-            nn.Linear(768, 256),
+            nn.Linear(hidden_size, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(256, class_num)

@@ -26,7 +26,7 @@ from torchvision.transforms import v2
 
 from datasets import PtAudioDataset, AppendZeroValues
 from trainer import TorchSupervisedTrainer
-from models import TransformerSequenceProcessor, Wav2vec2Extractor
+from models import TransformerSequenceProcessor, Wav2vec2Extractor, Wav2vecExtractor
 
 if __name__ == '__main__':
 
@@ -43,7 +43,8 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
+        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
+        r'I:\AVABOS\DATSET_V0_train_test_split',
         '--class_num', '2',
         '--epoch_num', '1',
         '--batch_size', '8',
@@ -98,18 +99,19 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Wav2vec2'
+    model_name = 'Wav2vec1'
 
     bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     sample_rate = bundle.sample_rate
 
-    audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    #audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
 
     model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=2,
         transformer_head_num=8,
-        hidden_size=768,
+        hidden_size=512,
         class_num=class_num
         )
     

@@ -111,7 +111,7 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Swin3D'
+    model_name = 'Swin3D_transformer+weighted_loss'
 
     video_extractor = Swin3d_T_extractor(frame_num=video_frames_num, window_size=video_window_size)
 
@@ -130,8 +130,8 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters())
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-
-    criterion = nn.CrossEntropyLoss()
+    loss_class_weights = torch.tensor([0.5, 2.0]).to(device)
+    criterion = nn.CrossEntropyLoss(loss_class_weights = torch.tensor([0.5, 2.0]).to(device))
     #criterion = MultiCrossEntropyLoss()
 
     metrics_dict = {
