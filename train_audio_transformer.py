@@ -128,7 +128,9 @@ if __name__ == '__main__':
         '--class_num', '2',
         '--epoch_num', '1',
         '--batch_size', '8',
-        '--max_audio_len', '150000']
+        '--max_audio_len', '80000'
+        #'--max_audio_len', '150000'
+        ]
     
     args = parser.parse_args(sample_args)
 
@@ -186,11 +188,11 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'hubert_large'
+    model_name = '1D CNN'
 
     
 
-    audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    #audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
 
     '''

@@ -10,14 +10,14 @@ from torchvision.transforms import v2
 from tqdm import tqdm
 
 if __name__ == '__main__':
-    path_to_source_dir = r'i:\AVABOS\DATSET_V0.2'
+    path_to_source_dir = r'i:\AVABOS\DATSET_V0'
     path_to_partitioned_dataset = r'i:\AVABOS\DATSET_V0_train_test_split'
     #path_to_combinations_info_table = r'I:\AVABOS\!combinations_info_table.csv'
     path_to_combinations_info_table = os.path.join(path_to_source_dir,'!combinations_info_table.csv')
     target_partition_idx = 512952
 
     paths_to_videos_list = glob.glob(os.path.join(path_to_source_dir, 'physical', 'video', '*.mp4'))
-    
+
     paths_to_waves_list = glob.glob(os.path.join(path_to_source_dir, 'verbal', 'pt_waveform', '*.pt'))    
     paths_to_embeddings_list = glob.glob(os.path.join(path_to_source_dir, 'verbal', '*', '*.npy'))
     
@@ -28,6 +28,26 @@ if __name__ == '__main__':
     train_test_combinations = train_test_combinations.rename({'cluster__indices_combination':'train_clusters', 'rest_indices_combination':'test_clusters'}).to_dict()
 
     os.makedirs(path_to_partitioned_dataset, exist_ok=True)
+
+    print('-------------------------------------------')
+    print('COPY WAVEFORMS')
+    for path_to_wave_pt in tqdm(paths_to_waves_list):
+        split_path = path_to_wave_pt.split(os.sep)
+        
+        wave_name = split_path[-1]
+        name = '.'.join(wave_name.split('.')[:-1])
+        path_to_wave = os.sep.join(split_path[:-2]+['audio',f'{name}.wav'])
+        split_name = name.split('_')
+        cluster = split_name[0]
+        cluster = int(cluster.split('-')[-1])
+        partition = 'train' if cluster in train_test_combinations['train_clusters'] else 'test'
+        path_to_saving_dir = os.path.join(path_to_partitioned_dataset, partition, split_path[-3], split_path[-2])
+        os.makedirs(path_to_saving_dir, exist_ok=True)
+        path_to_copy = os.path.join(path_to_saving_dir, wave_name)
+        path_to_target_wave = os.path.join(path_to_saving_dir, f'{name}.wav')
+        shutil.copy2(path_to_wave_pt, path_to_copy)
+        shutil.copy2(path_to_wave, path_to_target_wave)
+
     print('-------------------------------------------')
     print('COPY VIDEOS')
     for path_to_video in tqdm(paths_to_videos_list):
@@ -42,21 +62,6 @@ if __name__ == '__main__':
         os.makedirs(path_to_saving_dir, exist_ok=True)
         path_to_copy = os.path.join(path_to_saving_dir, video_name)
         shutil.copy2(path_to_video, path_to_copy)
-
-    print('-------------------------------------------')
-    print('COPY PT WAVEFORMS')
-    for path_to_wave in tqdm(paths_to_waves_list):
-        split_path = path_to_wave.split(os.sep)
-        wave_name = split_path[-1]
-        name = '.'.join(wave_name.split('.')[:-1])
-        split_name = name.split('_')
-        cluster = split_name[0]
-        cluster = int(cluster.split('-')[-1])
-        partition = 'train' if cluster in train_test_combinations['train_clusters'] else 'test'
-        path_to_saving_dir = os.path.join(path_to_partitioned_dataset, partition, split_path[-3], split_path[-2])
-        os.makedirs(path_to_saving_dir, exist_ok=True)
-        path_to_copy = os.path.join(path_to_saving_dir, wave_name)
-        shutil.copy2(path_to_wave, path_to_copy)
 
     print('-------------------------------------------')
     print('COPY TEXT EMBEDDINGS')
