@@ -43,7 +43,7 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'i:\AVABOS\DATSET_V0_train_test_split',
+        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
         '--class_num', '2',
         '--epoch_num', '1',
         '--batch_size', '8',
