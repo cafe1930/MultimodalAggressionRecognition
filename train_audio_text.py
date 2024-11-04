@@ -28,86 +28,6 @@ from datasets import PtAudioDataset, AppendZeroValues
 from trainer import TorchSupervisedTrainer
 from models import TransformerSequenceProcessor, Wav2vec2Extractor, Wav2vecExtractor
 
-class CNN1D(nn.Module):
-
-    def __init__(self, class_num):
-        super().__init__()
-        self.extractor = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=160, stride=4, padding=160//2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-
-            nn.MaxPool1d(4, 4),
-            nn.Dropout1d(0.1),
-            #################
-            nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-
-            nn.MaxPool1d(4, 4),
-            nn.Dropout1d(0.1),
-            #################
-            nn.Conv1d(64, 128, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-
-            nn.MaxPool1d(4, 4),
-            nn.Dropout1d(0.1),
-            #################
-            nn.Conv1d(128, 256, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-
-            nn.MaxPool1d(4, 4),
-            nn.Dropout1d(0.1),
-            #################
-
-            nn.Conv1d(256, 512, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-
-            nn.Dropout1d(0.1),
-
-            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(512),
-            nn.ReLU()
-            )
-        
-
-        self.classifier = nn.Sequential(
-
-            nn.AdaptiveAvgPool1d(1), # это, похоже, и есть Lambda
-            nn.Flatten(),
-
-            nn.Dropout1d(0.2),
-
-            nn.Linear(512, class_num)    
-        )
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        h = self.extractor(x)
-        return self.classifier(h)
-
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -193,7 +113,6 @@ if __name__ == '__main__':
     audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
 
-    '''
     model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=2,
@@ -201,8 +120,7 @@ if __name__ == '__main__':
         hidden_size=1280,
         class_num=class_num
         )
-    '''
-    model = CNN1D(class_num=2)
+    
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters())
