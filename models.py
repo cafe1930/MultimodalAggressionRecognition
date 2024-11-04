@@ -188,7 +188,7 @@ class Wav2vecExtractor(nn.Module):
 class Wav2vec2Extractor(Wav2vecExtractor):
     def forward(self, x):
         with torch.no_grad():
-            features = self.wav2vec.extract_features(x)[0][0]
+            features = self.wav2vec.extract_features(x)[0][-1]
         #print(features.shape)
         #exit()
 

@@ -67,6 +67,12 @@ if __name__ == '__main__':
     paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
     paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
 
+    #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
+    bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
+    sample_rate = bundle.sample_rate
+    #print(sample_rate)
+    
+
     train_transform = v2.Compose([
         AppendZeroValues(target_size=[max_audio_len]),
         #v2.ToDtype(torch.float32, scale=True)
@@ -95,23 +101,23 @@ if __name__ == '__main__':
         #pin_memory=True
     )
     
+    
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Wav2vec1'
+    model_name = 'hubert_large'
 
-    bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
-    sample_rate = bundle.sample_rate
+    
 
-    #audio_extractor = Wav2vec2Extractor(bundle.get_model())
-    audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
+    audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
 
     model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=2,
         transformer_head_num=8,
-        hidden_size=512,
+        hidden_size=1280,
         class_num=class_num
         )
     
