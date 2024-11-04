@@ -339,6 +339,11 @@ class PtAudioDataset(torch.utils.data.Dataset):
         #return data
         return data, label
     
+class PtTextDataset(PtAudioDataset):
+    def read_data_file(self, idx):
+        audio_data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32, device=self.device)
+        return audio_data
+    
     
     
 

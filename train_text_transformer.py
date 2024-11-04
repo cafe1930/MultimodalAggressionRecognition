@@ -24,9 +24,9 @@ import argparse
 
 from torchvision.transforms import v2
 
-from datasets import PtAudioDataset, AppendZeroValues
+from datasets import PtTextDataset, AppendZeroValues
 from trainer import TorchSupervisedTrainer
-from models import TransformerSequenceProcessor, Wav2vec2Extractor
+from models import TransformerSequenceProcessor
 
 if __name__ == '__main__':
 
@@ -63,8 +63,8 @@ if __name__ == '__main__':
         if path_to_checkpoint is None:
             raise ValueError('--path_to_checkpoint flag must be specified if --resume_training flag')
  
-    paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
-    paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
+    paths_to_train_text_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', '*.npy'))
+    paths_to_test_text_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', '*.npy'))
 
     train_transform = v2.Compose([
         AppendZeroValues(target_size=[max_embeddings_len, 768]),
@@ -76,8 +76,8 @@ if __name__ == '__main__':
         #v2.ToDtype(torch.float32, scale=True)
     ])
 
-    train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
-    test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    train_dataset = PtTextDataset(paths_to_train_text_list, train_transform, 'cuda')
+    test_dataset = PtTextDataset(paths_to_test_text_list, test_transform, 'cuda')
     
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -98,20 +98,15 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Wav2vec2'
-
-    bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
-    sample_rate = bundle.sample_rate
-
-    audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    model_name = 'ConversationalRuBERT'
 
     model = TransformerSequenceProcessor(
-        extractor_model=audio_extractor,
+        extractor_model=nn.Sequential(),
         transformer_layer_num=2,
         transformer_head_num=8,
         hidden_size=768,
-        class_num=class_num
-        )
+        class_num=2
+    )
     
     model.to(device)
 
