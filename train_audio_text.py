@@ -24,9 +24,9 @@ import argparse
 
 from torchvision.transforms import v2
 
-from datasets import PtAudioDataset, AppendZeroValues
+from datasets import PtAudioDataset, AppendZeroValues, MultimodalDataset
 from trainer import TorchSupervisedTrainer
-from models import TransformerSequenceProcessor, Wav2vec2Extractor, Wav2vecExtractor
+from models import TransformerSequenceProcessor, CNN1D, AudioTextualModel, Wav2vec2Extractor, Wav2vecExtractor
 
 if __name__ == '__main__':
 
@@ -40,6 +40,7 @@ if __name__ == '__main__':
     parser.add_argument('--epoch_num', type=int)
     parser.add_argument('--test_size', type=float)
     parser.add_argument('--max_audio_len', type=int)
+    parser.add_argument('--max_embeddings_len', type=int)
     
     sample_args = [
         '--path_to_dataset',
@@ -48,7 +49,9 @@ if __name__ == '__main__':
         '--class_num', '2',
         '--epoch_num', '1',
         '--batch_size', '8',
-        '--max_audio_len', '150000']
+        '--max_audio_len', '80000',
+        '--max_embeddings_len', '48'
+        ]
     
     args = parser.parse_args(sample_args)
 
@@ -59,6 +62,7 @@ if __name__ == '__main__':
     class_num = args.class_num
     batch_size = int(args.batch_size)
     max_audio_len = args.max_audio_len
+    max_embeddings_len = args.max_embeddings_len
         
     if resume_training == True:
         if path_to_checkpoint is None:
@@ -67,24 +71,57 @@ if __name__ == '__main__':
     paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
     paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
 
+    paths_to_train_audio_text_list = []
+    for path_to_audio in paths_to_train_audios_list:
+        name = os.path.split(path_to_audio)[-1]
+        name = '.'.join(name.split('.')[:-1])
+        path_to_text = os.path.join(path_to_dataset_root,'train', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', f'{name}.npy')
+        paths_to_train_audio_text_list.append({'audio':path_to_audio, 'text':path_to_text})
+
+    paths_to_test_audio_text_list = []
+    for path_to_audio in paths_to_test_audios_list:
+        name = os.path.split(path_to_audio)[-1]
+        name = '.'.join(name.split('.')[:-1])
+        path_to_text = os.path.join(path_to_dataset_root,'test', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', f'{name}.npy')
+        paths_to_test_audio_text_list.append({'audio':path_to_audio, 'text':path_to_text})
+
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
     sample_rate = bundle.sample_rate
     #print(sample_rate)
     
-
-    train_transform = v2.Compose([
+    train_audio_transform = v2.Compose([
         AppendZeroValues(target_size=[max_audio_len]),
         #v2.ToDtype(torch.float32, scale=True)
     ])
 
-    test_transform = v2.Compose([
+    test_audio_transform = v2.Compose([
         AppendZeroValues(target_size=[max_audio_len]),
         #v2.ToDtype(torch.float32, scale=True)
     ])
 
-    train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
-    test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    train_text_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_embeddings_len, 768]),
+        #v2.ToDtype(torch.float32, scale=True)
+    ])
+
+    test_text_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_embeddings_len, 768]),
+        #v2.ToDtype(torch.float32, scale=True)
+    ])
+
+    train_transforms_dict = {
+        'audio': train_audio_transform,
+        'text': train_text_transform
+    }
+
+    test_transforms_dict = {
+        'audio': test_audio_transform,
+        'text': test_text_transform
+    }
+
+    train_dataset = MultimodalDataset(paths_to_train_audio_text_list, train_transforms_dict, 'cuda')
+    test_dataset = MultimodalDataset(paths_to_test_audio_text_list, test_transforms_dict, 'cuda')
     
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -100,29 +137,49 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
-    
-    
+
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'hubert_large'
+    model_name = '1dcnn+RuBERT'
 
     
-
-    audio_extractor = Wav2vec2Extractor(bundle.get_model())
+    #audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
 
-    model = TransformerSequenceProcessor(
+    audio_extractor = nn.Sequential(
+        CNN1D(class_num=2),
+        nn.Linear(512, 768),
+        nn.Dropout(0.3))
+    
+    
+    #audio_extractor = audio_extractor.extractor
+    audio_model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=2,
         transformer_head_num=8,
-        hidden_size=1280,
+        hidden_size=768,
         class_num=class_num
+        )
+    text_model = TransformerSequenceProcessor(
+        extractor_model=nn.Sequential(),
+        transformer_layer_num=2,
+        transformer_head_num=8,
+        hidden_size=768,
+        class_num=2
+    )
+
+    model = AudioTextualModel(
+        audio_extractor_model=audio_model,
+        text_extractor_model=text_model,
+        hidden_size=768,
+        class_num=2
         )
     
     model.to(device)
 
+    
     optimizer = torch.optim.Adam(model.parameters())
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')

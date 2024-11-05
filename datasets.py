@@ -179,7 +179,6 @@ class PtVideoDataset(NumpyVideoExtractorDataset):
         label = self.label_dict[split_name[-1]]
         return torch.as_tensor(label, dtype=torch.int64, device=self.device)
 
-
 class AppendVideoZeroFrames(nn.Module):
     def __init__(self, target_frame_num:int):
         '''
@@ -198,7 +197,6 @@ class AppendVideoZeroFrames(nn.Module):
         #if appending_frame_num >= self.target_frame_num:
         #    return video[:self.target_frame_num]
         return torch.cat([video, torch.zeros((appending_frame_num, channels, rows, cols), dtype=video_dtype)])
-    
 
 class AppendZeroValues(nn.Module):
     def __init__(self, target_size:torch.Size):
@@ -230,7 +228,6 @@ class AppendZeroValues(nn.Module):
         #print(appending_size)
         #print(input_tensor.shape, torch.zeros(appending_size, dtype=dtype).shape)
         return torch.cat([input_tensor, torch.zeros(appending_size.tolist(), dtype=dtype, device=device)])
-
 
 class RnnFeaturesDataset(torch.utils.data.Dataset):
     label_dict = {'AGGR': 1, 'NOAGGR': 0}
@@ -342,12 +339,7 @@ class PtAudioDataset(torch.utils.data.Dataset):
 class PtTextDataset(PtAudioDataset):
     def read_data_file(self, idx):
         audio_data = torch.as_tensor(np.load(self.paths_to_data_list[idx]), dtype=torch.float32, device=self.device)
-        return audio_data
-    
-
-    
-    
-    
+        return audio_data    
 
 class NumpyVideoBboxesDataset2Classes(NumpyVideoExtractorDataset):
     label_dict = {'Нет':0, 'Захваты':1, 'Толчки': 1, 'Удары': 1}
@@ -439,9 +431,65 @@ class VideoDataset(VideoBboxesDataset):
         #return data
         return data.permute((1, 0, 2, 3)), label
 
+class MultimodalDataset(torch.utils.data.Dataset):
+    label_dict = {'NOAGGR':0, 'AGGR':1}
+    def __init__(self, paths_to_data_list, modality_augmentation_dict, device):
+        super().__init__()
+        self.modality_augmentation_dict = modality_augmentation_dict
+        self.paths_to_data_list = paths_to_data_list
+        self.device = device
+
+    def read_data_file(self, idx):
+        paths_to_modalities_dict = self.paths_to_data_list[idx]
+        multimodal_data_dict = {}
+        #print()
+        #print(paths_to_modalities_dict)
+        for modality_name, path in paths_to_modalities_dict.items():
+            #print(f'{modality_name}: {path}')
+            if modality_name == 'audio':
+                multimodal_data_dict['audio'] = torch.load(path).to(self.device)
+            elif modality_name == 'text':
+                multimodal_data_dict['text'] = torch.as_tensor(np.load(path), dtype=torch.float32, device=self.device)
+            elif modality_name == 'video':
+                video = torch.load(self.paths_to_data_list[idx])
+                multimodal_data_dict['video'] = tv_tensors.Video(video, device=self.device)
+        #print(multimodal_data_dict)
+        return multimodal_data_dict
     
+    def get_label(self, idx):  
+        #A structure of a file name is u_v_x_y_z_LABEL.npy
+        paths_to_modalities_dict = self.paths_to_data_list[idx]
+        path_to_audio = paths_to_modalities_dict['audio']
+        name = os.path.split(path_to_audio)[-1]
+        name = '.'.join(name.split('.')[:-1])
+        split_name = name.split('_')
+        label = self.label_dict[split_name[-1]]
+        return torch.as_tensor(label, dtype=torch.int64, device=self.device)
+    
+    def __len__(self):
+        return len(self.paths_to_data_list)
+    
+    def __getitem__(self, idx):
+        data_dict = self.read_data_file(idx)
+        #data_dict = dict(sorted(data_dict.items()))
+        #print(data_dict)
+
+        for modality_name, data in data_dict.items():
+            #print(f'{modality_name}:')
+            #print(data.shape)
+            #print()
+            if modality_name == 'video':
+                data = self.modality_augmentation_dict[modality_name](data)
+                data_dict[modality_name] = data.permute((1, 0, 2, 3))
+            else:
+                data_dict[modality_name] = self.modality_augmentation_dict[modality_name](data)
+        label = self.get_label(idx)
+        #return data
+        return tuple(data_dict.items()), label
+
 
 if __name__ == '__main__':
+
 
     paths_to_train_dirs_list = glob.glob(r'I:\AVABOS\DATASET_VERSION_1.0\PHYS\train\*')
     paths_to_test_dirs_list = glob.glob(r'I:\AVABOS\DATASET_VERSION_1.0\PHYS\test\*')

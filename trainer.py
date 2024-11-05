@@ -16,6 +16,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+def reursively_to_device(data, device):
+    if isinstance(data, list):
+        reursively_to_device(data, device)
+    elif isinstance(data, torch.tensor):
+        data = data.to(device)
 
 
 class TorchSupervisedTrainer:
@@ -122,8 +127,14 @@ class TorchSupervisedTrainer:
         # отправляем данные на вычислительное устройство
         data, true_vals = batch[0], batch[1]
         true_vals = true_vals.to(self.device)
-        if isinstance(data, list):
-            data = [d.to(self.device) for d in data]
+        if isinstance(data, (list, tuple)):
+            #data = [d.to(self.device) for d in data]
+            for i, d in enumerate(data):
+                if isinstance(d, list):
+                    d = [x.to(self.device) if isinstance(x, torch.Tensor) else x for x in d]
+                else:
+                    data[i] = d.to(self.device)
+
         else:
             data = data.to(self.device)
         # стандартные операции:
@@ -146,9 +157,9 @@ class TorchSupervisedTrainer:
         # Вычисление суммарной ошибки на батче
         #ret_loss = loss.item() * data.size(0)
         if isinstance(data, list):
-            size = data[0].size(0)
+            size = len(data[0])#.size(0)
         else:
-            size = data.size(0)
+            size = len(data)#.size(0)
         ret_loss = self.compute_batch_loss(loss, size)
         # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)
@@ -179,8 +190,13 @@ class TorchSupervisedTrainer:
         # отправляем данные на вычислительное устройство
         data, true_vals = batch[0], batch[1]
         true_vals = true_vals.to(self.device)
-        if isinstance(data, list):
-            data = [d.to(self.device) for d in data]
+        if isinstance(data, (list, tuple)):
+            #data = [d.to(self.device) for d in data]
+            for i, d in enumerate(data):
+                if isinstance(d, list):
+                    d = [x.to(self.device) if isinstance(x, torch.Tensor) else x for x in d]
+                else:
+                    data[i] = d.to(self.device)
         else:
             data = data.to(self.device)
         # Прямое распространение
@@ -190,9 +206,9 @@ class TorchSupervisedTrainer:
         # Вычисление суммарной ошибки на батче
         #ret_loss = loss.item() * data.size(0)
         if isinstance(data, list):
-            size = data[0].size(0)
+            size = len(data[0])#.size(0)
         else:
-            size = data.size(0)
+            size = len(data)#.size(0)
         ret_loss = self.compute_batch_loss(loss, size)
         # получение результатов нейронной сети для последующей обработки
         pred_vals = self.nn_output_processing(pred)

@@ -22,10 +22,11 @@ class ExtractorBase(nn.Module):
         raise NotImplementedError(f'Method \'prepare_model\' in {self.__class__.__name__} should be implemented')
 
     def forward(self, x):
-        features_list = []
-        for idx, i in enumerate(range(0, self.frame_num, self.window_size)):
-            features = self.extractor(x[:,:,i:i+self.window_size,:,:])
-            features_list.append(features)
+        with torch.no_grad():
+            features_list = []
+            for idx, i in enumerate(range(0, self.frame_num, self.window_size)):
+                features = self.extractor(x[:,:,i:i+self.window_size,:,:])
+                features_list.append(features)
 
         return torch.stack(features_list).permute((1, 0, 2))#.detach().cpu().numpy()
         #return torch.stack(features_list).detach().cpu()
@@ -178,7 +179,8 @@ class Wav2vecExtractor(nn.Module):
         self.wav2vec = wav2vec_model
     
     def forward(self, x):
-        features = self.wav2vec(x).permute(0, 2, 1)
+        with torch.no_grad():
+            features = self.wav2vec(x).permute(0, 2, 1)
         #print(features.shape)
         #print()
         #exit()
@@ -250,19 +252,6 @@ class AverageFeatureSequence(nn.Module):
 
     def forward(self, x):
         return x.mean(dim=1).unsqueeze(1), None
-
-
-class MultiCrossEntropyLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.criterion = nn.CrossEntropyLoss()
-
-    def forward(self, output_dict, target):
-        losses_dict = LossesDict()
-        for name, preds in output_dict.items():
-            losses_dict[name] = self.criterion(preds, target)
-
-        return losses_dict
     
 
 class R3DWithBboxes(nn.Module):
@@ -321,12 +310,14 @@ class TransformerSequenceProcessor(nn.Module):
             )
 
     def forward(self, x, ret_type='classifier'):
-        with torch.no_grad():
-            features = self.feature_extractor(x)
+        #with torch.no_grad():
+        features = self.feature_extractor(x)
         transformer_sequence_features = self.transformer_squence_processing(features)
-        avg_features = self.average_features_sequence(transformer_sequence_features)
         
-        classifier_out = self.classifier(avg_features)
+        if ret_type=='classifier' or ret_type=='all':
+            avg_features = self.average_features_sequence(transformer_sequence_features)
+            classifier_out = self.classifier(avg_features)
+        
         if ret_type == 'classifier':
             return classifier_out
         elif ret_type == 'features':
@@ -334,11 +325,138 @@ class TransformerSequenceProcessor(nn.Module):
         elif ret_type == 'all':
             return classifier_out, transformer_sequence_features
 
+class EqualSizedModalitiesFusion(nn.Module):
+    def __init__(self, fusion_transformer_layer_num, fusion_transformer_hidden_size, fusion_transformer_head_num):
+        super().__init__()
+        
+        transformer_layer = nn.TransformerEncoderLayer(
+            d_model=fusion_transformer_hidden_size, nhead=fusion_transformer_head_num, batch_first=True,)
+        self.modality_fusion_transformer = nn.TransformerEncoder(
+            transformer_layer,
+            num_layers=fusion_transformer_layer_num,
+            norm=nn.LayerNorm(fusion_transformer_hidden_size))
+        
+    def forward(self, modalities_features_list):
+        modality_features_bounds = []
+        prev_size = 0
+        for m in modalities_features_list:
+            size = m.size(1)
+            modality_features_bounds.append([prev_size, prev_size+size])
+            prev_size = prev_size+size
+        concat_features = torch.cat(modalities_features_list, dim=1)
+        fused_features = self.modality_fusion_transformer(concat_features)
+        #return fused_features, modality_features_bounds
+        return [fused_features[:,b0:b1] for b0, b1 in modality_features_bounds]
+    
+class AudioTextualModel(nn.Module):
+    def __init__(self, audio_extractor_model, text_extractor_model, hidden_size, class_num):
+        super().__init__()
+        self.audio_extractor = audio_extractor_model
+        self.text_extractor = text_extractor_model
+        self.modality_fusion_module = EqualSizedModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=2)
+        self.output_classifier = nn.Sequential(
+            nn.Linear(hidden_size, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, class_num)
+            )
+
+    def forward(self, x):
+        data_dict = {}
+        for modality_name, batch_tensor in x:
+            data_dict[modality_name[0]] = batch_tensor
+        
+        audio_features = self.audio_extractor(data_dict['audio'], ret_type='features')
+        text_features = self.text_extractor(data_dict['text'], ret_type='features')
+
+        fused_audio, fused_text = self.modality_fusion_module([audio_features, text_features])
+
+        averaged_audio = fused_audio.mean(dim=1)
+        averaged_text = fused_text.mean(dim=1)
+
+        return self.output_classifier(averaged_audio + averaged_text)
+
+class CNN1D(nn.Module):
+    def __init__(self, class_num):
+        super().__init__()
+        self.extractor = nn.Sequential(
+            nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(64, 128, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(128, 256, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+
+            nn.Conv1d(256, 512, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+
+            nn.Dropout1d(0.1),
+
+            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(512),
+            nn.ReLU()
+            )
+
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool1d(1), # это, похоже, и есть Lambda
+            nn.Flatten(),
+            nn.Dropout1d(0.2),
+            nn.Linear(512, class_num)    
+        )
+
+    def forward(self, x):
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+        h = self.extractor(x).permute(0, 2, 1)
+        #batch_size, hidden_size, features_num = h.shape
+        #print(h.shape)
+        return h#.permute(1, 2)#self.classifier(h)
 
 if __name__ == '__main__':
-    video_extractor = Swin3d_T_extractor(frame_num=256, window_size=16).cuda()
-
-    video = torch.randn((1, 3, 256, 112, 112)).cuda()
-    print(video_extractor)
-    #out = video_extractor(video)
+    #model = CNN1D(2)
+    #out = model(torch.randn(1, 80000))
     #print(out.shape)
+    model = nn.Linear(512, 256)
+    tensor = torch.randn(1, 2, 512)
+    print(model(tensor).shape)
