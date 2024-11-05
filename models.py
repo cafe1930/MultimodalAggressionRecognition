@@ -337,6 +337,7 @@ class EqualSizedModalitiesFusion(nn.Module):
             norm=nn.LayerNorm(fusion_transformer_hidden_size))
         
     def forward(self, modalities_features_list):
+        
         modality_features_bounds = []
         prev_size = 0
         for m in modalities_features_list:
@@ -353,7 +354,12 @@ class AudioTextualModel(nn.Module):
         super().__init__()
         self.audio_extractor = audio_extractor_model
         self.text_extractor = text_extractor_model
-        self.modality_fusion_module = EqualSizedModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=2)
+        #self.modality_fusion_module = EqualSizedModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=2)
+        self.modality_fusion_module = nn.Sequential(
+            nn.Linear(hidden_size*2, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.3)
+        )
         self.output_classifier = nn.Sequential(
             nn.Linear(hidden_size, 256),
             nn.ReLU(),
@@ -366,15 +372,23 @@ class AudioTextualModel(nn.Module):
         for modality_name, batch_tensor in x:
             data_dict[modality_name[0]] = batch_tensor
         
-        audio_features = self.audio_extractor(data_dict['audio'], ret_type='features')
+        #audio_features = self.audio_extractor(data_dict['audio'], ret_type='features')
+        audio_features = self.audio_extractor(data_dict['audio'])
         text_features = self.text_extractor(data_dict['text'], ret_type='features')
 
-        fused_audio, fused_text = self.modality_fusion_module([audio_features, text_features])
+        #fused_audio, fused_text = self.modality_fusion_module([audio_features, text_features])
 
-        averaged_audio = fused_audio.mean(dim=1)
-        averaged_text = fused_text.mean(dim=1)
+        #averaged_audio = fused_audio.mean(dim=1)
+        #averaged_text = fused_text.mean(dim=1)
+        averaged_audio = audio_features.mean(dim=1)
+        averaged_text = text_features.mean(dim=1)
+        concat_features = torch.cat([averaged_audio, averaged_text], dim=-1)
 
-        return self.output_classifier(averaged_audio + averaged_text)
+        fused_features = self.modality_fusion_module(concat_features)
+
+        return self.output_classifier(fused_features)
+        #return self.output_classifier(averaged_audio + averaged_text)
+        #return self.output_classifier(averaged_text)
 
 class CNN1D(nn.Module):
     def __init__(self, class_num):
@@ -446,8 +460,11 @@ class CNN1D(nn.Module):
         )
 
     def forward(self, x):
+        
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
+
+        return self.classifier(self.extractor(x))
         h = self.extractor(x).permute(0, 2, 1)
         #batch_size, hidden_size, features_num = h.shape
         #print(h.shape)

@@ -24,7 +24,7 @@ import argparse
 
 from torchvision.transforms import v2
 
-from datasets import PtAudioDataset, AppendZeroValues
+from datasets import PtAudioDataset, AppendZeroValues, WavAudioDataset
 from trainer import TorchSupervisedTrainer
 from models import TransformerSequenceProcessor, Wav2vec2Extractor, Wav2vecExtractor, CNN1D
 
@@ -46,8 +46,8 @@ if __name__ == '__main__':
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
         r'I:\AVABOS\DATSET_V0_train_test_split',
         '--class_num', '2',
-        '--epoch_num', '1',
-        '--batch_size', '8',
+        '--epoch_num', '30',
+        '--batch_size', '16',
         '--max_audio_len', '80000'
         #'--max_audio_len', '150000'
         ]
@@ -66,8 +66,10 @@ if __name__ == '__main__':
         if path_to_checkpoint is None:
             raise ValueError('--path_to_checkpoint flag must be specified if --resume_training flag')
  
-    paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
-    paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
+    #paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
+    #paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
+    paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.wav'))
+    paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.wav'))
 
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
@@ -85,8 +87,10 @@ if __name__ == '__main__':
         #v2.ToDtype(torch.float32, scale=True)
     ])
 
-    train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
-    test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    #train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
+    #test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    train_dataset = WavAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
+    test_dataset = WavAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
     
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,

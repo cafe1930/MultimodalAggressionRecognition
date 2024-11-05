@@ -335,6 +335,14 @@ class PtAudioDataset(torch.utils.data.Dataset):
         label = self.get_label(idx)
         #return data
         return data, label
+
+class WavAudioDataset(PtAudioDataset):
+    def read_data_file(self, idx):
+        audio_data, sr = torchaudio.load(self.paths_to_data_list[idx])
+        audio_data = torchaudio.functional.resample(audio_data, sr, 16000)
+        audio_data = audio_data.mean(dim=0)
+        #audio_data = torch.load(self.paths_to_data_list[idx]).to(self.device)
+        return audio_data
     
 class PtTextDataset(PtAudioDataset):
     def read_data_file(self, idx):
@@ -433,14 +441,18 @@ class VideoDataset(VideoBboxesDataset):
 
 class MultimodalDataset(torch.utils.data.Dataset):
     label_dict = {'NOAGGR':0, 'AGGR':1}
-    def __init__(self, paths_to_data_list, modality_augmentation_dict, device):
+    def __init__(self, time_intervals_df, path_to_dataset, modality_augmentation_dict, actual_modalities_list, device, text_embedding_type):
         super().__init__()
         self.modality_augmentation_dict = modality_augmentation_dict
-        self.paths_to_data_list = paths_to_data_list
+        self.path_to_dataset = path_to_dataset
+        self.time_intervals_df = time_intervals_df
+        self.actual_modalities_list = actual_modalities_list
         self.device = device
+        self.text_embedding_type = text_embedding_type
 
     def read_data_file(self, idx):
-        paths_to_modalities_dict = self.paths_to_data_list[idx]
+        
+        
         multimodal_data_dict = {}
         #print()
         #print(paths_to_modalities_dict)
@@ -467,10 +479,41 @@ class MultimodalDataset(torch.utils.data.Dataset):
         return torch.as_tensor(label, dtype=torch.int64, device=self.device)
     
     def __len__(self):
-        return len(self.paths_to_data_list)
+        return len(self.time_intervals_df)
     
     def __getitem__(self, idx):
-        data_dict = self.read_data_file(idx)
+        data_entry = self.time_intervals_df.iloc[idx]
+        aggr_type = data_entry['aggr_type']
+        cluster_id = data_entry['cluster_id']
+        video_id = data_entry['video_id']
+        phys_t1 = data_entry['phys_t1']
+        phys_t2 = data_entry['phys_t2']
+        verb_t1 = data_entry['verb_t1']
+        verb_t2 = data_entry['verb_t2']
+        person_id = data_entry['person_id']
+        phys_label = data_entry['phys_label']
+        verb_label = data_entry['verb_label']
+
+        multimodal_data_dict = {}
+        for modality in self.actual_modalities_list:
+            if aggr_type == 'verbal':
+                name = f'c-{cluster_id}_{video_id}_{person_id}_{verb_t1/1000}-{verb_t2/1000}_{verb_label}'
+                if modality == 'text':
+                    path_to_text = os.path.join(self.path_to_dataset, 'verbal', self.text_embedding_type, f'{name}.npy')
+                    multimodal_data_dict['text'] = torch.as_tensor(np.load(path_to_text), dtype=torch.float32, device=self.device)
+                elif modality == 'audio':
+                    path_to_audio = os.path.join(self.path_to_dataset, 'verbal', 'pt_waveform', f'{name}.pt')
+                    multimodal_data_dict['audio'] = torch.load(path_to_audio).to(self.device)
+            elif aggr_type == 'physical':
+                name = f'c-{cluster_id}_{video_id}_{person_id}_{phys_t1/1000}-{phys_t2/1000}_{phys_label}'
+                path_to_video = os.path.join(self.path_to_dataset, 'physical', 'video', f'{name}.pt')
+                data = torch.load(path_to_video)
+                multimodal_data_dict['video'] = tv_tensors.Video(data, device=self.device)
+        phys_t1 = data_entry['phys_t1']
+        phys_t2 = data_entry['phys_t2']
+
+        return data_entry
+        return self.read_data_file(idx)
         #data_dict = dict(sorted(data_dict.items()))
         #print(data_dict)
 
@@ -489,6 +532,10 @@ class MultimodalDataset(torch.utils.data.Dataset):
 
 
 if __name__ == '__main__':
+
+    t = torch.randn(2, 100).mean(dim=0)
+    print(t.shape)
+    exit()
 
 
     paths_to_train_dirs_list = glob.glob(r'I:\AVABOS\DATASET_VERSION_1.0\PHYS\train\*')
