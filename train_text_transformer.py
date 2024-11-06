@@ -43,9 +43,10 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
+        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
+        r'I:\AVABOS\DATSET_V0_train_test_split',
         '--class_num', '2',
-        '--epoch_num', '100',
+        '--epoch_num', '30',
         '--batch_size', '32',
         '--max_embeddings_len', '48']
     
@@ -65,7 +66,7 @@ if __name__ == '__main__':
  
     paths_to_train_text_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', '*.npy'))
     paths_to_test_text_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens', '*.npy'))
-
+    
     train_transform = v2.Compose([
         AppendZeroValues(target_size=[max_embeddings_len, 768]),
         #v2.ToDtype(torch.float32, scale=True)

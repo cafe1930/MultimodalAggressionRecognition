@@ -167,7 +167,6 @@ if __name__ == '__main__':
             device=device
             )
 
-
     #print(trainer.start_epoch)
     #exit()
     # Запуск обучения

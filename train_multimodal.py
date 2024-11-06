@@ -48,11 +48,12 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'/home/aggr/mikhail_u/DATA/DATSET_V0',
-        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
+        #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
+        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
         #r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
+        #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
+        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
@@ -81,9 +82,12 @@ if __name__ == '__main__':
     video_frames_num = args.video_frames_num
     video_window_size = args.video_window_size
 
+    # имя модели соответствует имени экстрактора признаков
+    model_name = 'Text only'
+
     modalities_list = [
-        'audio',
-        'text',
+        #'audio',
+        #'text',
         'video'
         ]
         
@@ -197,11 +201,6 @@ if __name__ == '__main__':
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
     
-    # имя модели соответствует имени экстрактора признаков
-    model_name = 'Separated Modalities'
-
-    
-
     #audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
    

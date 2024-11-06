@@ -442,8 +442,8 @@ class MultimodalModel(nn.Module):
         #modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
         # Выполнение классификации
         output_dict = {}
-        for modality_name, classifier in self.modality_classifiers_dict.items():
-            output_dict[modality_name] = classifier(modlalities_features_dict[modality_name])
+        for modality_name in self.modality_classifiers_dict:
+            output_dict[modality_name] = self.modality_classifiers_dict[modality_name](modlalities_features_dict[modality_name])
 
         return output_dict
     
