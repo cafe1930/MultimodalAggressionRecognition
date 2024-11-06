@@ -439,7 +439,7 @@ class MultimodalModel(nn.Module):
                     modality_features[not_empty_tensors] = features
             modlalities_features_dict[modality_name] = modality_features
         # слияние модальностей
-        modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
+        #modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
         # Выполнение классификации
         output_dict = {}
         for modality_name, classifier in self.modality_classifiers_dict.items():

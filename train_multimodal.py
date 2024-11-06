@@ -48,17 +48,17 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        #r'/home/aggr/mikhail_u/DATA/DATSET_V0'
+        r'/home/aggr/mikhail_u/DATA/DATSET_V0',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
-        r'I:\AVABOS\DATSET_V0',
+        #r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv'
-        r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
+        #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
         '--class_num', '2',
-        '--epoch_num', '2',
-        '--batch_size', '16',
+        '--epoch_num', '100',
+        '--batch_size', '32',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -82,7 +82,7 @@ if __name__ == '__main__':
     video_window_size = args.video_window_size
 
     modalities_list = [
-        #'audio',
+        'audio',
         'text',
         'video'
         ]
@@ -198,7 +198,7 @@ if __name__ == '__main__':
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Multimodal'
+    model_name = 'Separated Modalities'
 
     
 
