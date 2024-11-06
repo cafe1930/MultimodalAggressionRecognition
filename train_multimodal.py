@@ -25,8 +25,8 @@ import argparse
 from torchvision.transforms import v2
 
 from datasets import PtAudioDataset, AppendZeroValues, MultimodalDataset
-from trainer import TorchSupervisedTrainer
-from models import TransformerSequenceProcessor, CNN1D, AudioTextualModel, Wav2vec2Extractor, Wav2vecExtractor
+from trainer import MultimodalTrainer
+from models import TransformerSequenceProcessor, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -48,15 +48,17 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
+        #r'/home/aggr/mikhail_u/DATA/DATSET_V0'
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
         r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
+        #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv'
         r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
         '--class_num', '2',
-        '--epoch_num', '30',
-        '--batch_size', '32',
+        '--epoch_num', '2',
+        '--batch_size', '16',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -78,6 +80,12 @@ if __name__ == '__main__':
     max_embeddings_len = args.max_embeddings_len
     video_frames_num = args.video_frames_num
     video_window_size = args.video_window_size
+
+    modalities_list = [
+        #'audio',
+        'text',
+        'video'
+        ]
         
     if resume_training == True:
         if path_to_checkpoint is None:
@@ -132,18 +140,18 @@ if __name__ == '__main__':
         'text': train_text_transform,
         'video': train_video_transform
     }
-
+    train_transforms_dict = {k:v for k,v in train_transforms_dict.items()if k in modalities_list}
     test_transforms_dict = {
         'audio': test_audio_transform,
         'text': test_text_transform,
         'video': test_video_transform
     }
-
+    test_transforms_dict = {k:v for k,v in test_transforms_dict.items()if k in modalities_list}
     train_dataset = MultimodalDataset(
         time_intervals_df=train_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
-        actual_modalities_list=['video', 'text'],
+        actual_modalities_list=modalities_list,
         device='cuda',
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
@@ -151,14 +159,24 @@ if __name__ == '__main__':
         time_intervals_df=test_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
-        actual_modalities_list=['video', 'text'],
+        actual_modalities_list=modalities_list,
         device='cuda',
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
-    print(train_dataset[0])
-    print()
-    print(test_dataset[0])
-    exit()
+    
+    #for i in tqdm(range(len(train_dataset))):
+    #    res = train_dataset[i]
+    #for i in tqdm(range(len(test_dataset))):
+    #    res = test_dataset[i]
+    #    if 'audio' in res and 'video' in res:
+    #        break
+    #print(res)
+    #exit()
+
+    #print(train_dataset[0])
+    #print()
+    #print(test_dataset[0])
+    #exit()
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -173,24 +191,22 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
+    #for data in tqdm(train_dataloader):
+    #    pass
 
     device = torch.device('cuda:0')
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = '1dcnn+RuBERT'
+    model_name = 'Multimodal'
 
     
+
     #audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
-
-    audio_extractor = nn.Sequential(
-        CNN1D(class_num=2),
-        nn.Linear(512, 768),
-        nn.Dropout(0.3))
-    
-    
-    #audio_extractor = audio_extractor.extractor
+   
+    #audio_extractor = nn.Sequential(CNN1D(class_num=2),nn.Linear(512, 768),nn.Dropout(0.3))
+    audio_extractor = AudioCnn1DExtractorWrapper(hidden_size=768)
     audio_model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=2,
@@ -206,22 +222,58 @@ if __name__ == '__main__':
         class_num=2
     )
 
-    model = AudioTextualModel(
-        audio_extractor_model=audio_extractor,
-        text_extractor_model=text_model,
+    video_extractor = Swin3d_T_extractor(frame_num=video_frames_num, window_size=video_window_size)
+
+    video_model = TransformerSequenceProcessor(
+        extractor_model=video_extractor,
+        transformer_layer_num=2,
+        transformer_head_num=8,
         hidden_size=768,
-        class_num=2
+        class_num=class_num
         )
+       
+    # определяем размерности векторов признаков для многомодальной обработки
+    video_features_shape = video_model(torch.zeros([1, 3, video_frames_num, 112, 112]), ret_type='features').shape
+    audio_features_shape = audio_extractor(torch.zeros([1, max_audio_len]), ret_type='features').shape
+    text_features_shape = text_model(torch.zeros([1, max_embeddings_len, 768]), ret_type='features').shape
+    modality_features_shapes_dict = {
+        'audio':list(audio_features_shape)[1:],
+        'text':list(text_features_shape)[1:],
+        'video':list(video_features_shape)[1:]
+    }
+    modality_features_shapes_dict = {k:v for k,v in modality_features_shapes_dict.items() if k in modalities_list}
+    modality_extractors_dict = {
+        'audio':audio_extractor,
+        'text':text_model,
+        'video':video_model
+    }
+    modality_extractors_dict = {k:v for k,v in modality_extractors_dict.items() if k in modalities_list}
+    modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
+    
+    modality_classifiers_dict = {
+        'audio':OutputClassifier(768, 2),
+        'text':OutputClassifier(768, 2),
+        'video':OutputClassifier(768, 2)
+    }
+    modality_classifiers_dict = {k:v for k,v in modality_classifiers_dict.items() if k in modalities_list}
+    modality_classifiers_dict = nn.ModuleDict(modality_classifiers_dict)
+    model = MultimodalModel(
+        modality_extractors_dict=modality_extractors_dict,
+        modality_classifiers_dict=modality_classifiers_dict,
+        modality_features_shapes_dict=modality_features_shapes_dict,
+        hidden_size=768,
+        class_num=2)
     
     model.to(device)
-
     
     optimizer = torch.optim.Adam(model.parameters())
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
-    criterion = nn.CrossEntropyLoss()
-    #criterion = MultiCrossEntropyLoss()
+    #criterion = nn.CrossEntropyLoss()
+    criterion = MultiModalCrossEntropyLoss(modalities_list)
+    
+    
 
     metrics_dict = {
         'loss': None,
@@ -232,14 +284,14 @@ if __name__ == '__main__':
         'UAR': {'metric': metrics.recall_score, 'kwargs': {'average': 'macro'}},
     }
 
-    metrics_to_dispaly = ['loss', 'accuracy', 'UAR', 'recall', 'precision']
+    metrics_to_dispaly = ['loss', 'accuracy', 'UAR', 'recall', 'precision', 'f1-score']
 
     if resume_training:
         trainer = torch.load(path_to_checkpoint)
         #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
         #trainer.train_loader.dataset.path_to_dataset = path_to_dataset
     else:
-        trainer = TorchSupervisedTrainer(
+        trainer = MultimodalTrainer(
             model=model,
             model_name=model_name,
             train_loader=train_dataloader,

@@ -126,7 +126,16 @@ class TorchSupervisedTrainer:
         '''
         # отправляем данные на вычислительное устройство
         data, true_vals = batch[0], batch[1]
-        true_vals = true_vals.to(self.device)
+        #true_vals = true_vals.to(self.device)
+        if isinstance(true_vals, (list, tuple)):
+            #data = [d.to(self.device) for d in data]
+            for i, tv in enumerate(true_vals):
+                if isinstance(tv, list):
+                    tv = [x.to(self.device) if isinstance(x, torch.Tensor) else x for x in tv]
+                else:
+                    true_vals[i] = tv.to(self.device)
+        else:
+            true_vals = true_vals.to(self.device)
         if isinstance(data, (list, tuple)):
             #data = [d.to(self.device) for d in data]
             for i, d in enumerate(data):
@@ -134,7 +143,6 @@ class TorchSupervisedTrainer:
                     d = [x.to(self.device) if isinstance(x, torch.Tensor) else x for x in d]
                 else:
                     data[i] = d.to(self.device)
-
         else:
             data = data.to(self.device)
         # стандартные операции:
@@ -189,7 +197,15 @@ class TorchSupervisedTrainer:
         # Шаг тестироавания
         # отправляем данные на вычислительное устройство
         data, true_vals = batch[0], batch[1]
-        true_vals = true_vals.to(self.device)
+        if isinstance(true_vals, (list, tuple)):
+            #data = [d.to(self.device) for d in data]
+            for i, tv in enumerate(true_vals):
+                if isinstance(tv, list):
+                    tv = [x.to(self.device) if isinstance(x, torch.Tensor) else x for x in tv]
+                else:
+                    true_vals[i] = tv.to(self.device)
+        else:
+            true_vals = true_vals.to(self.device)
         if isinstance(data, (list, tuple)):
             #data = [d.to(self.device) for d in data]
             for i, d in enumerate(data):
@@ -639,8 +655,6 @@ class RNN_trainer(TorchSupervisedTrainer):
         0: 'NOAGGR',
         1: 'AGGR'
     }
-    
-    
 
     def define_best_criterion(self, checkpoint_criterion):        
         self.model_names_list = list(self.model.models_dict.keys())
@@ -886,7 +900,191 @@ class RNN_trainer(TorchSupervisedTrainer):
             
             self.training_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_train_log.csv'))
             self.testing_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_test_log_.csv'))
+
+class MultimodalTrainer(RNN_trainer):
+
+    def define_best_criterion(self, checkpoint_criterion):        
+        self.model_names_list = list(self.model.modality_extractors_dict.keys())
+        best_criterion_dict = {}
+        for model_name in self.model_names_list:
+            if checkpoint_criterion == 'loss':
+                # если контролируем loss, то берем изначально большое значение критерия
+                best_criterion_dict[model_name] = 9999999
+                # функция сравнения текущего значения метрики с лучшим
+                #self.is_best_result = lambda x,y: x<y
+            else:
+                # если контролируем другую метрику (accuracy, recall и т.д.), то берем изначально нулевое значение критерия
+                best_criterion_dict[model_name] = 0
+                # функция сравнения текущего значения метрики с лучшим
+                #self.is_best_result = lambda x,y: x>y
+
+        return best_criterion_dict
     
+    def create_batch_results_dict(self, ret_loss, pred_vals, true_vals):
+        
+        # обработка результатов
+        modality_labels_dict = {}
+        for modality_names, modality_labels_batch in true_vals:
+            modality_name = modality_names[0].split('_')[0]
+            modality_names = [n.split('_')[-1] for n in modality_names]
+            
+            modality_names = np.array(modality_names)
+            not_empty_tensors = modality_names!='EMPTY'
+            modality_names = modality_names[not_empty_tensors]
+            if len(modality_names) > 0:
+                modality_labels_batch = modality_labels_batch[not_empty_tensors].detach().cpu().numpy()
+                modality_labels_dict[modality_name] = modality_labels_batch
+                pred_vals[modality_name] = pred_vals[modality_name][not_empty_tensors]
+            else:
+                try:
+                    pred_vals.pop(modality_name)
+                except:
+                    pass
+                try:
+                    ret_loss.pop(modality_name)
+                except:
+                    pass
+        '''
+        print('PRED')
+        print(pred_vals)
+        print()
+        print('LABELS')
+        print(modality_labels_dict)
+        print()
+        print('LOSS')
+        print(ret_loss)
+        print()
+        '''
+        return {'loss': ret_loss, 'true': modality_labels_dict, 'pred': pred_vals}
+    
+    def compute_epoch_results(self, epoch_results_list, mode):
+        '''
+        ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
+        Здесь мы 'парсим' данные, полученные в ходе обучения или тестирования
+        '''
+
+        if mode =='train':
+            dataset_size = self.train_samples_num
+        elif mode == 'test':
+            dataset_size = self.test_samples_num
+        else:
+            raise TypeError('mode should be either \'train\' or \'test\'')
+
+        # process metrics
+        true = []
+        #cummulative_loss = 0
+        # В цикле накапливаем значения всех метрик
+        models_cummulative_loss_dict = {}
+        models_cunmulative_models_preds_dict = {}
+        models_cummulative_true_dict = {}
+        
+        for batch_results in epoch_results_list:
+            
+            # обработка loss
+            for model_name, loss in batch_results['loss'].items():
+                try:
+                    models_cummulative_loss_dict[model_name] += loss
+                except KeyError:
+                    models_cummulative_loss_dict[model_name] = loss
+            # обработка выходов НС
+            for model_name, pred in batch_results['pred'].items():
+                try:
+                    pred_arr = models_cunmulative_models_preds_dict[model_name]
+                    models_cunmulative_models_preds_dict[model_name] = np.concatenate([pred_arr, pred])#.append(pred)
+                except KeyError:
+                    models_cunmulative_models_preds_dict[model_name] = pred
+                
+            for model_name, true_labels in batch_results['true'].items():
+                try:
+                    pred_arr = models_cummulative_true_dict[model_name]
+                    models_cummulative_true_dict[model_name] = np.concatenate([pred_arr, true_labels])#.append(pred)
+                except KeyError:
+                    models_cummulative_true_dict[model_name] = true_labels
+            #true.append()
+
+        
+
+        #true = np.concatenate(true)#.reshape(-1)
+        #pred = np.concatenate(pred)#.reshape(-1)
+                
+        #loss = cummulative_loss/dataset_size
+        # Словарь, который мы будем добавлять в лог
+        log_results_dict = {}
+
+        # compute losses for all the models
+        for model_name, loss in models_cummulative_loss_dict.items():
+            log_results_dict[model_name] = {'loss': models_cummulative_loss_dict[model_name] / dataset_size}
+        
+        
+        # Строка для вывода на экран
+        
+        #log_results_dict['loss'] = models_cummulative_loss_dict
+        #log_results_dict['loss'] = self.compute_epoch_loss()
+
+        # compute metrics for all the models
+
+        for model_name, pred in models_cunmulative_models_preds_dict.items():
+            true = models_cummulative_true_dict[model_name]
+            for metric_name in self.metrics_dict.keys():
+                if metric_name.lower() != 'loss':
+                    metric = self.metrics_dict[metric_name]
+                    if type(metric) is dict:
+                        metric_func = metric['metric']
+                        metric_kwargs = metric['kwargs']
+                    else:
+                        metric_func = metric
+                        metric_kwargs = {}
+                    # вычисляем метрику
+                    metric_value = metric_func(true, pred, **metric_kwargs)
+                    # добавляем метрику в словарь под соответствующим именем модли
+                    log_results_dict[model_name][metric_name] = metric_value
+
+        return log_results_dict
+    
+    def save_model(self, model_name):
+        if self.path_to_best_checkpoint is not None:
+            if model_name in self.path_to_best_checkpoint:
+                os.remove(self.path_to_best_checkpoint[model_name])
+        else:
+            self.path_to_best_checkpoint = {}
+            
+        best_weights_name = f'{model_name}_best_ep-{self.current_epoch}.pt'
+        path_to_best_checkpoint = os.path.join(self.saving_dir, best_weights_name)
+        self.path_to_best_checkpoint[model_name] = path_to_best_checkpoint
+        try:
+            torch.save(self.model, path_to_best_checkpoint)
+        except:
+            torch.save(self.model.state_dict(), path_to_best_checkpoint)
+
+    def save_best_weights(self, test_results_dict):        
+        for model_name, test_results in test_results_dict.items():
+            best = self.best_criterion[model_name]
+            err = test_results[self.checkpoint_criterion]
+            
+            if self.checkpoint_criterion == 'loss':
+                if err < best:
+                    print(f'Best results for {model_name} achieved, saving weights...')
+                    self.save_model(model_name)
+                    self.best_criterion[model_name] = err
+            else:
+                if err > best:
+                    print(f'Best results for {model_name} achieved, saving weights...')
+                    self.save_model(model_name)
+                    self.best_criterion[model_name] = err
+
+    def init_log(self):
+        self.training_log = {}
+        self.testing_log = {}
+        for name in self.model.modality_extractors_dict.keys():
+            self.training_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
+            self.testing_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
+    
+    def update_datasets(self):
+        pass
+
+    
+
+
 class AudioRNN_trainer(RNN_trainer):
     def update_datasets(self):
         pass

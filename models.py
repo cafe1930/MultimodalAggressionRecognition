@@ -2,6 +2,7 @@ from torchvision.models.video import r3d_18
 import torchvision
 import torch
 from torch import nn
+import numpy as np
 
 class PermuteModule(nn.Module):
     def forward(self, x):
@@ -228,8 +229,47 @@ class AudioMultiNN(nn.Module):
 
 class LossesDict(dict):
     def backward(self):
-        for name, loss in self.items():
-            loss.backward()
+        items_num = len(self)
+        for idx, (name, loss) in enumerate(self.items()):
+            retain_graph = idx != (items_num-1)
+            loss.backward(retain_graph=retain_graph)
+
+class MultiModalCrossEntropyLoss(nn.Module):
+    def __init__(self, modalities_list):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+        self.modalities_list = modalities_list
+
+    def forward(self, output_dict, target):
+        losses_dict = LossesDict()
+        for modality_names, modality_labels in target:
+            batch_size = modality_labels.size(0)
+            # шаблон - <modality_name>_EMPTY
+            modality_name = modality_names[0].split('_')[0]
+            modality_names = [n.split('_')[-1] for n in modality_names]
+            modality_names = np.array(modality_names)
+            not_empty_tensors = modality_names!='EMPTY'
+            modality_names = modality_names[not_empty_tensors]
+            if len(modality_names) > 0:
+                if modality_name in self.modalities_list:
+                    output_dict[modality_name][~not_empty_tensors].detach_()
+                    preds = output_dict[modality_name][not_empty_tensors]
+                    labels = modality_labels[not_empty_tensors]
+                    losses_dict[modality_name] = self.criterion(preds, labels)
+
+        return losses_dict
+
+class AudioCnn1DExtractorWrapper(nn.Module):
+        def __init__(self, hidden_size):
+            super().__init__()
+            self.extractor = CNN1D(class_num=2)
+            self.adaptor = nn.Sequential(
+                nn.Linear(512, hidden_size),
+                nn.Dropout(0.3)
+            )
+        def forward(self, x, ret_type='features'):
+            h = self.extractor(x, ret_type)
+            return self.adaptor(h)
 
 
 class MultiCrossEntropyLoss(nn.Module):
@@ -324,6 +364,19 @@ class TransformerSequenceProcessor(nn.Module):
             return transformer_sequence_features
         elif ret_type == 'all':
             return classifier_out, transformer_sequence_features
+        
+class OutputClassifier(nn.Module):
+    def __init__(self, input_features, class_num):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            SequenceAverageFeatures(hidden_size=input_features),
+            nn.Linear(input_features, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, class_num)
+        )
+    def forward(self, x):
+        return self.classifier(x)
 
 class EqualSizedModalitiesFusion(nn.Module):
     def __init__(self, fusion_transformer_layer_num, fusion_transformer_hidden_size, fusion_transformer_head_num):
@@ -336,18 +389,63 @@ class EqualSizedModalitiesFusion(nn.Module):
             num_layers=fusion_transformer_layer_num,
             norm=nn.LayerNorm(fusion_transformer_hidden_size))
         
-    def forward(self, modalities_features_list):
+    def forward(self, modalities_features_dict):
         
-        modality_features_bounds = []
+        modality_features_bounds_dict = {}
         prev_size = 0
-        for m in modalities_features_list:
-            size = m.size(1)
-            modality_features_bounds.append([prev_size, prev_size+size])
+        modalities_features_list = []
+        for modality_name, data in modalities_features_dict.items():
+            size = data.size(1)
+            modality_features_bounds_dict[modality_name] = [prev_size, prev_size+size]
+            modalities_features_list.append(data)
             prev_size = prev_size+size
         concat_features = torch.cat(modalities_features_list, dim=1)
         fused_features = self.modality_fusion_transformer(concat_features)
         #return fused_features, modality_features_bounds
-        return [fused_features[:,b0:b1] for b0, b1 in modality_features_bounds]
+        return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
+
+class MultimodalModel(nn.Module):
+    def __init__(self, modality_extractors_dict, modality_classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
+        super().__init__()
+        self.modality_extractors_dict = modality_extractors_dict
+        self.modality_features_shapes_dict = modality_features_shapes_dict
+        self.modality_fusion_module = EqualSizedModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=hidden_size, fusion_transformer_head_num=8)
+        self.modality_classifiers_dict = modality_classifiers_dict
+    def forward(self, input_data):
+        # извлечение признаков
+        modlalities_features_dict = {}
+        for modality_names, modality_batch in input_data:
+            batch_size = modality_batch.size(0)
+            # шаблон - <modality_name>_EMPTY
+            modality_name = modality_names[0].split('_')[0]
+            modality_names = [n.split('_')[-1] for n in modality_names]
+            
+            modality_names = np.array(modality_names)
+            not_empty_tensors = modality_names!='EMPTY'
+            modality_names = modality_names[not_empty_tensors]
+            modality_features_shape = self.modality_features_shapes_dict[modality_name]
+            modality_features_shape = [batch_size] + modality_features_shape
+            
+            # заглушка из нулей, чтобы обеспечить многомодальное обучение в случае отсутствия модальностей
+            modality_features = torch.zeros(modality_features_shape, device=modality_batch.device)
+            #print(modality_name)
+            #print(modality_features.shape)
+            if len(modality_names) > 0:
+                #modality_name = modality_names[0]
+                if modality_name in self.modality_extractors_dict:
+                    features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors], ret_type='features')
+                    #print(f'Out features for {modality_name}')
+                    #print(features.shape)
+                    modality_features[not_empty_tensors] = features
+            modlalities_features_dict[modality_name] = modality_features
+        # слияние модальностей
+        modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
+        # Выполнение классификации
+        output_dict = {}
+        for modality_name, classifier in self.modality_classifiers_dict.items():
+            output_dict[modality_name] = classifier(modlalities_features_dict[modality_name])
+
+        return output_dict
     
 class AudioTextualModel(nn.Module):
     def __init__(self, audio_extractor_model, text_extractor_model, hidden_size, class_num):
@@ -459,16 +557,19 @@ class CNN1D(nn.Module):
             nn.Linear(512, class_num)    
         )
 
-    def forward(self, x):
+    def forward(self, x, ret_type='classifier'):
         
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
-
-        return self.classifier(self.extractor(x))
-        h = self.extractor(x).permute(0, 2, 1)
+        h = self.extractor(x)
+        #return self.classifier(self.extractor(x))
+        if ret_type == 'features':
+            return h.permute(0, 2, 1)
+        elif ret_type == 'classifier':
+            return self.classifier(h)
         #batch_size, hidden_size, features_num = h.shape
         #print(h.shape)
-        return h#.permute(1, 2)#self.classifier(h)
+        #return h#.permute(1, 2)#self.classifier(h)
 
 if __name__ == '__main__':
     #model = CNN1D(2)

@@ -441,7 +441,18 @@ class VideoDataset(VideoBboxesDataset):
 
 class MultimodalDataset(torch.utils.data.Dataset):
     label_dict = {'NOAGGR':0, 'AGGR':1}
-    def __init__(self, time_intervals_df, path_to_dataset, modality_augmentation_dict, actual_modalities_list, device, text_embedding_type):
+    def __init__(
+            self,
+            time_intervals_df,
+            path_to_dataset,
+            modality_augmentation_dict,
+            actual_modalities_list,
+            device,
+            text_embedding_type,
+            video_shape=(1,3, 112, 112),
+            audio_shape=(1,),
+            text_shape=(1, 768)
+            ):
         super().__init__()
         self.modality_augmentation_dict = modality_augmentation_dict
         self.path_to_dataset = path_to_dataset
@@ -449,34 +460,9 @@ class MultimodalDataset(torch.utils.data.Dataset):
         self.actual_modalities_list = actual_modalities_list
         self.device = device
         self.text_embedding_type = text_embedding_type
-
-    def read_data_file(self, idx):
-        
-        
-        multimodal_data_dict = {}
-        #print()
-        #print(paths_to_modalities_dict)
-        for modality_name, path in paths_to_modalities_dict.items():
-            #print(f'{modality_name}: {path}')
-            if modality_name == 'audio':
-                multimodal_data_dict['audio'] = torch.load(path).to(self.device)
-            elif modality_name == 'text':
-                multimodal_data_dict['text'] = torch.as_tensor(np.load(path), dtype=torch.float32, device=self.device)
-            elif modality_name == 'video':
-                video = torch.load(self.paths_to_data_list[idx])
-                multimodal_data_dict['video'] = tv_tensors.Video(video, device=self.device)
-        #print(multimodal_data_dict)
-        return multimodal_data_dict
-    
-    def get_label(self, idx):  
-        #A structure of a file name is u_v_x_y_z_LABEL.npy
-        paths_to_modalities_dict = self.paths_to_data_list[idx]
-        path_to_audio = paths_to_modalities_dict['audio']
-        name = os.path.split(path_to_audio)[-1]
-        name = '.'.join(name.split('.')[:-1])
-        split_name = name.split('_')
-        label = self.label_dict[split_name[-1]]
-        return torch.as_tensor(label, dtype=torch.int64, device=self.device)
+        self.video_shape = video_shape
+        self.audio_shape = audio_shape
+        self.text_shape = text_shape
     
     def __len__(self):
         return len(self.time_intervals_df)
@@ -491,28 +477,112 @@ class MultimodalDataset(torch.utils.data.Dataset):
         verb_t1 = data_entry['verb_t1']
         verb_t2 = data_entry['verb_t2']
         person_id = data_entry['person_id']
-        phys_label = data_entry['phys_label']
-        verb_label = data_entry['verb_label']
+        phys_label = data_entry['phys_aggr_label']
+        verb_label = data_entry['verb_aggr_label']
 
         multimodal_data_dict = {}
+        multimodal_label_dict = {}
+        # заполняем пустыми значениями, чтобы правильно работал DataLoader
         for modality in self.actual_modalities_list:
-            if aggr_type == 'verbal':
-                name = f'c-{cluster_id}_{video_id}_{person_id}_{verb_t1/1000}-{verb_t2/1000}_{verb_label}'
+            if modality =='text':
+                text = torch.full(self.text_shape, fill_value=-1., device=self.device)
+                text = self.modality_augmentation_dict['text'](text)
+                multimodal_data_dict['text'] = text
+                multimodal_label_dict['text'] = torch.as_tensor(-1, dtype=torch.int64, device=self.device)
+            elif modality == 'audio':
+                audio = torch.full(self.audio_shape, fill_value=-1., device=self.device)
+                audio = self.modality_augmentation_dict['audio'](audio)
+                multimodal_data_dict['audio'] = audio
+                multimodal_label_dict['audio'] = torch.as_tensor(-1, dtype=torch.int64, device=self.device)
+            elif modality == 'video':
+                video = torch.full(self.video_shape, fill_value=-1., device=self.device)
+                video = tv_tensors.Video(video, device=self.device)
+                video = self.modality_augmentation_dict['video'](video)
+                multimodal_data_dict['video'] = video.permute((1, 0, 2, 3))
+                multimodal_label_dict['video'] = torch.as_tensor(-1, dtype=torch.int64, device=self.device)
+        is_video = False
+        is_audio = False
+        is_text = False
+        for modality in self.actual_modalities_list:
+            if aggr_type == 'verb':
+                verb_name = f'c-{cluster_id}_{video_id}_{person_id}_{verb_t1/1000}-{verb_t2/1000}_{verb_label}'
                 if modality == 'text':
-                    path_to_text = os.path.join(self.path_to_dataset, 'verbal', self.text_embedding_type, f'{name}.npy')
-                    multimodal_data_dict['text'] = torch.as_tensor(np.load(path_to_text), dtype=torch.float32, device=self.device)
+                    path_to_text = os.path.join(self.path_to_dataset, 'verbal', self.text_embedding_type, f'{verb_name}.npy')
+                    text = torch.as_tensor(np.load(path_to_text), dtype=torch.float32, device=self.device)
+                    text = self.modality_augmentation_dict['text'](text)
+                    multimodal_data_dict['text'] = text
+                    multimodal_label_dict['text'] = torch.as_tensor(self.label_dict[verb_label], dtype=torch.int64, device=self.device)
+                    is_text = True
                 elif modality == 'audio':
-                    path_to_audio = os.path.join(self.path_to_dataset, 'verbal', 'pt_waveform', f'{name}.pt')
-                    multimodal_data_dict['audio'] = torch.load(path_to_audio).to(self.device)
-            elif aggr_type == 'physical':
-                name = f'c-{cluster_id}_{video_id}_{person_id}_{phys_t1/1000}-{phys_t2/1000}_{phys_label}'
-                path_to_video = os.path.join(self.path_to_dataset, 'physical', 'video', f'{name}.pt')
-                data = torch.load(path_to_video)
-                multimodal_data_dict['video'] = tv_tensors.Video(data, device=self.device)
-        phys_t1 = data_entry['phys_t1']
-        phys_t2 = data_entry['phys_t2']
+                    path_to_audio = os.path.join(self.path_to_dataset, 'verbal', 'pt_waveform', f'{verb_name}.pt')
+                    audio = torch.load(path_to_audio).to(self.device)
+                    audio = self.modality_augmentation_dict['audio'](audio)
+                    multimodal_data_dict['audio'] = audio
+                    multimodal_label_dict['audio'] = torch.as_tensor(self.label_dict[verb_label], dtype=torch.int64, device=self.device)
+                    is_audio = True
+            elif aggr_type == 'phys':
+                if modality == 'video':
+                    phys_name = f'c-{cluster_id}_{video_id}_{person_id}_{phys_t1/1000}-{phys_t2/1000}_{phys_label}'
+                    path_to_video = os.path.join(self.path_to_dataset, 'physical', 'video', f'{phys_name}.pt')
+                    video = torch.load(path_to_video)
+                    video = tv_tensors.Video(video, device=self.device)
+                    video = self.modality_augmentation_dict['video'](video)
+                    multimodal_data_dict['video'] = video.permute((1, 0, 2, 3))
+                    multimodal_label_dict['video'] = torch.as_tensor(self.label_dict[phys_label], dtype=torch.int64, device=self.device)
+                    is_video = True
+            elif aggr_type == 'phys&verb':
+                verb_name = f'c-{cluster_id}_{video_id}_{person_id}_{verb_t1/1000}-{verb_t2/1000}_{verb_label}'
+                phys_name = f'c-{cluster_id}_{video_id}_{person_id}_{phys_t1/1000}-{phys_t2/1000}_{phys_label}'
+                if modality == 'text':
+                    path_to_text = os.path.join(self.path_to_dataset, 'verbal', self.text_embedding_type, f'{verb_name}.npy')
+                    text = torch.as_tensor(np.load(path_to_text), dtype=torch.float32, device=self.device)
+                    text = self.modality_augmentation_dict['text'](text)
+                    multimodal_data_dict['text'] = text
+                    multimodal_label_dict['text'] = torch.as_tensor(self.label_dict[verb_label], dtype=torch.int64, device=self.device)
+                    is_text = True
+                elif modality == 'audio':
+                    path_to_audio = os.path.join(self.path_to_dataset, 'verbal', 'pt_waveform', f'{verb_name}.pt')
+                    audio = torch.load(path_to_audio).to(self.device)
+                    audio = self.modality_augmentation_dict['audio'](audio)
+                    multimodal_data_dict['audio'] = audio
+                    multimodal_label_dict['audio'] = torch.as_tensor(self.label_dict[verb_label], dtype=torch.int64, device=self.device)
+                    is_audio = True
+                elif modality == 'video':
+                    path_to_video = os.path.join(self.path_to_dataset, 'physical', 'video', f'{phys_name}.pt')
+                    video = torch.load(path_to_video)
+                    video = tv_tensors.Video(video, device=self.device)
+                    video = self.modality_augmentation_dict['video'](video)
+                    multimodal_data_dict['video'] = video.permute((1, 0, 2, 3))
+                    multimodal_label_dict['video'] = torch.as_tensor(self.label_dict[phys_label], dtype=torch.int64, device=self.device)
+                    is_video = True
 
-        return data_entry
+        output_data_list = []
+        for modality, tensor in multimodal_data_dict.items():
+            if modality == 'audio':
+                if not is_audio:
+                    modality = 'audio_EMPTY'
+            elif modality == 'video':
+                if not is_video:
+                    modality = 'video_EMPTY'
+            elif modality == 'text':
+                if not is_text:
+                    modality = 'text_EMPTY'
+            output_data_list.append((modality, tensor))
+
+        output_labels_list = []
+        for modality, label in multimodal_label_dict.items():
+            if modality == 'audio':
+                if not is_audio:
+                    modality = 'audio_EMPTY'
+            elif modality == 'video':
+                if not is_video:
+                    modality = 'video_EMPTY'
+            elif modality == 'text':
+                if not is_text:
+                    modality = 'text_EMPTY'
+            output_labels_list.append((modality, label))
+            
+        return tuple(output_data_list), tuple(output_labels_list)
         return self.read_data_file(idx)
         #data_dict = dict(sorted(data_dict.items()))
         #print(data_dict)
