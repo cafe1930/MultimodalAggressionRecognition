@@ -24,9 +24,9 @@ import argparse
 
 from torchvision.transforms import v2
 
-from datasets import PtAudioDataset, AppendZeroValues, MultimodalDataset
+from datasets import PtAudioDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
 from trainer import MultimodalTrainer
-from models import TransformerSequenceProcessor, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
+from models import TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -49,16 +49,16 @@ if __name__ == '__main__':
     sample_args = [
         '--path_to_dataset',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
-        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
-        #r'I:\AVABOS\DATSET_V0',
+        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
+        r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
-        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
-        #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
         '--class_num', '2',
-        '--epoch_num', '100',
+        '--epoch_num', '1',
         '--batch_size', '32',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
@@ -86,8 +86,8 @@ if __name__ == '__main__':
     model_name = 'Text only'
 
     modalities_list = [
-        #'audio',
-        #'text',
+        'audio',
+        'text',
         'video'
         ]
         
@@ -167,20 +167,24 @@ if __name__ == '__main__':
         device='cuda',
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
-    
-    #for i in tqdm(range(len(train_dataset))):
-    #    res = train_dataset[i]
-    #for i in tqdm(range(len(test_dataset))):
-    #    res = test_dataset[i]
-    #    if 'audio' in res and 'video' in res:
-    #        break
-    #print(res)
-    #exit()
 
-    #print(train_dataset[0])
-    #print()
-    #print(test_dataset[0])
-    #exit()
+    train_batch_sampler = AggrBatchSampler(train_time_interval_combinations_df, batch_size=batch_size, shuffle=True)
+    test_batch_sampler = AggrBatchSampler(test_time_interval_combinations_df, batch_size=batch_size, shuffle=False)
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_sampler=train_batch_sampler,
+        num_workers=0
+        #pin_memory=True
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_sampler=test_batch_sampler,
+        num_workers=0
+        #pin_memory=True
+    )
+    
+    '''
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -195,6 +199,7 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
+    '''
     #for data in tqdm(train_dataloader):
     #    pass
 
@@ -248,6 +253,8 @@ if __name__ == '__main__':
     }
     modality_extractors_dict = {k:v for k,v in modality_extractors_dict.items() if k in modalities_list}
     modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
+
+    modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
     
     modality_classifiers_dict = {
         'audio':OutputClassifier(768, 2),
@@ -258,6 +265,7 @@ if __name__ == '__main__':
     modality_classifiers_dict = nn.ModuleDict(modality_classifiers_dict)
     model = MultimodalModel(
         modality_extractors_dict=modality_extractors_dict,
+        modality_fusion_module=modality_fusion_module,
         modality_classifiers_dict=modality_classifiers_dict,
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
@@ -271,8 +279,6 @@ if __name__ == '__main__':
 
     #criterion = nn.CrossEntropyLoss()
     criterion = MultiModalCrossEntropyLoss(modalities_list)
-    
-    
 
     metrics_dict = {
         'loss': None,

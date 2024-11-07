@@ -7,6 +7,7 @@ import torch
 from torch import nn
 import cv2
 import os
+import random
 import glob
 import numpy as np
 
@@ -468,7 +469,9 @@ class MultimodalDataset(torch.utils.data.Dataset):
         return len(self.time_intervals_df)
     
     def __getitem__(self, idx):
-        data_entry = self.time_intervals_df.iloc[idx]
+        #!!!!
+        #data_entry = self.time_intervals_df.iloc[idx]
+        data_entry = self.time_intervals_df.loc[idx]
         aggr_type = data_entry['aggr_type']
         cluster_id = data_entry['cluster_id']
         video_id = data_entry['video_id']
@@ -599,6 +602,39 @@ class MultimodalDataset(torch.utils.data.Dataset):
         label = self.get_label(idx)
         #return data
         return tuple(data_dict.items()), label
+
+class AggrBatchSampler(torch.utils.data.sampler.Sampler):
+    def __init__(self, time_intervals_df, batch_size, shuffle=False):
+        super().__init__()
+        self.batch_size = batch_size
+        self.time_intervals_df = time_intervals_df
+        self.shuffle = shuffle
+        self.batch_indices_list = self.generate_batch_indices()
+    
+    def generate_batch_indices(self):
+        batch_indices_list = []
+        for aggr_type in self.time_intervals_df['aggr_type'].unique():
+            aggr_type_indices = self.time_intervals_df[self.time_intervals_df['aggr_type']==aggr_type].index.tolist()
+            if self.shuffle:
+                # перемешиваем индексы
+                random.shuffle(aggr_type_indices)
+            # составляем пакеты индексов
+            for i in range(0, len(aggr_type_indices), self.batch_size):
+                batch_indices_list.append(aggr_type_indices[i:i+self.batch_size])
+        if self.shuffle:
+            # еще раз перемешиваем, чтобы пакеты подавались в случайном порядке
+            random.shuffle(batch_indices_list)
+        return batch_indices_list
+    
+    def __iter__(self):
+        for batch_indices in self.batch_indices_list:
+            yield batch_indices
+        # после окончания итерирования обновляем индексы
+        if self.shuffle:
+            self.batch_indices_list = self.generate_batch_indices()
+
+    def __len__(self):
+        return len(self.batch_indices_list)
 
 
 if __name__ == '__main__':

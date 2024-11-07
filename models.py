@@ -378,7 +378,7 @@ class OutputClassifier(nn.Module):
     def forward(self, x):
         return self.classifier(x)
 
-class EqualSizedModalitiesFusion(nn.Module):
+class EqualSizedTransformerModalitiesFusion(nn.Module):
     def __init__(self, fusion_transformer_layer_num, fusion_transformer_hidden_size, fusion_transformer_head_num):
         super().__init__()
         
@@ -405,41 +405,43 @@ class EqualSizedModalitiesFusion(nn.Module):
         return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
 
 class MultimodalModel(nn.Module):
-    def __init__(self, modality_extractors_dict, modality_classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
+    def __init__(self, modality_extractors_dict, modality_fusion_module, modality_classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
         super().__init__()
         self.modality_extractors_dict = modality_extractors_dict
         self.modality_features_shapes_dict = modality_features_shapes_dict
-        self.modality_fusion_module = EqualSizedModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=hidden_size, fusion_transformer_head_num=8)
+        self.modality_fusion_module = modality_fusion_module#
         self.modality_classifiers_dict = modality_classifiers_dict
     def forward(self, input_data):
         # извлечение признаков
         modlalities_features_dict = {}
         for modality_names, modality_batch in input_data:
             batch_size = modality_batch.size(0)
-            # шаблон - <modality_name>_EMPTY
+            # шаблон - <modality_name>_EMPTY; EMPTY означает, что модальность для выбранного экземпляра данных отсутствует
             modality_name = modality_names[0].split('_')[0]
             modality_names = [n.split('_')[-1] for n in modality_names]
             
             modality_names = np.array(modality_names)
+            # выполняем фильтрацию пакетов (batches) c пустыми модальностями
             not_empty_tensors = modality_names!='EMPTY'
             modality_names = modality_names[not_empty_tensors]
+            
+            # создаем заглушку из нулей, чтобы обеспечить многомодальное обучение в случае отсутствия модальности
             modality_features_shape = self.modality_features_shapes_dict[modality_name]
             modality_features_shape = [batch_size] + modality_features_shape
-            
-            # заглушка из нулей, чтобы обеспечить многомодальное обучение в случае отсутствия модальностей
             modality_features = torch.zeros(modality_features_shape, device=modality_batch.device)
             #print(modality_name)
             #print(modality_features.shape)
             if len(modality_names) > 0:
                 #modality_name = modality_names[0]
                 if modality_name in self.modality_extractors_dict:
+                    # выполняем извлечение признаков
                     features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors], ret_type='features')
-                    #print(f'Out features for {modality_name}')
-                    #print(features.shape)
+                    # ставим на места не пустых пакетов (batches) извлеченные признаки
                     modality_features[not_empty_tensors] = features
             modlalities_features_dict[modality_name] = modality_features
-        # слияние модальностей
-        #modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
+        
+        # выполняем слияние модальностей
+        modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
         # Выполнение классификации
         output_dict = {}
         for modality_name in self.modality_classifiers_dict:
