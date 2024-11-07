@@ -24,9 +24,9 @@ import argparse
 
 from torchvision.transforms import v2
 
-from datasets import PtAudioDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
+from datasets import MultimodalPhysVerbDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
 from trainer import MultimodalTrainer
-from models import TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
+from models import AveragedFeaturesTransformerFusion, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -83,14 +83,19 @@ if __name__ == '__main__':
     video_window_size = args.video_window_size
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Text only'
-
+    model_name = 'Text video'
+    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        'audio',
+        #'audio',
         'text',
         'video'
         ]
-        
+    aggr_types_list = set()
+    for m in modalities_list:
+        aggr_types_list.add(modality2aggr[m])
+
+    aggr_types_list = list(aggr_types_list)
+
     if resume_training == True:
         if path_to_checkpoint is None:
             raise ValueError('--path_to_checkpoint flag must be specified if --resume_training flag')
@@ -151,7 +156,7 @@ if __name__ == '__main__':
         'video': test_video_transform
     }
     test_transforms_dict = {k:v for k,v in test_transforms_dict.items()if k in modalities_list}
-    train_dataset = MultimodalDataset(
+    train_dataset = MultimodalPhysVerbDataset(
         time_intervals_df=train_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
@@ -159,7 +164,7 @@ if __name__ == '__main__':
         device='cuda',
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
-    test_dataset = MultimodalDataset(
+    test_dataset = MultimodalPhysVerbDataset(
         time_intervals_df=test_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
@@ -183,7 +188,8 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
-    
+
+
     '''
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -255,7 +261,22 @@ if __name__ == '__main__':
     modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
 
     modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
-    
+    #modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    '''
+    aggr_classifiers_dict = {
+        'phys':OutputClassifier(768, 2),
+        'verb':OutputClassifier(768, 2),
+    }
+    aggr_classifiers_dict = {k:v for k,v in aggr_classifiers_dict.items() if k in aggr_types_list}
+    aggr_classifiers_dict = nn.ModuleDict(aggr_classifiers_dict)
+    model = PhysVerbModel(
+        modality_extractors_dict=modality_extractors_dict,
+        modality_fusion_module=modality_fusion_module,
+        classifiers_dict=aggr_classifiers_dict,
+        modality_features_shapes_dict=modality_features_shapes_dict,
+        hidden_size=768,
+        class_num=2)
+    '''
     modality_classifiers_dict = {
         'audio':OutputClassifier(768, 2),
         'text':OutputClassifier(768, 2),
@@ -263,10 +284,11 @@ if __name__ == '__main__':
     }
     modality_classifiers_dict = {k:v for k,v in modality_classifiers_dict.items() if k in modalities_list}
     modality_classifiers_dict = nn.ModuleDict(modality_classifiers_dict)
+
     model = MultimodalModel(
         modality_extractors_dict=modality_extractors_dict,
         modality_fusion_module=modality_fusion_module,
-        modality_classifiers_dict=modality_classifiers_dict,
+        classifiers_dict=modality_classifiers_dict,
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
         class_num=2)
@@ -274,6 +296,16 @@ if __name__ == '__main__':
     model.to(device)
     
     optimizer = torch.optim.Adam(model.parameters())
+
+    for data, labels in train_dataloader:
+        break
+    ret = model(data)
+    print(ret[0])
+    print()
+    print(ret[1])
+    print()
+    print(labels)
+    exit()
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
 

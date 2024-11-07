@@ -586,22 +586,25 @@ class MultimodalDataset(torch.utils.data.Dataset):
             output_labels_list.append((modality, label))
             
         return tuple(output_data_list), tuple(output_labels_list)
-        return self.read_data_file(idx)
-        #data_dict = dict(sorted(data_dict.items()))
-        #print(data_dict)
-
-        for modality_name, data in data_dict.items():
-            #print(f'{modality_name}:')
-            #print(data.shape)
-            #print()
-            if modality_name == 'video':
-                data = self.modality_augmentation_dict[modality_name](data)
-                data_dict[modality_name] = data.permute((1, 0, 2, 3))
+    
+class MultimodalPhysVerbDataset(MultimodalDataset):
+    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    def __getitem__(self, idx):
+        output_data_tuple, output_labels_tuple = super().__getitem__(idx)
+        output_labels_dict = {}
+        for modality, label in output_labels_tuple:
+            split_modality = modality.split('_')
+            aggr_type = self.modality2aggr[split_modality[0]]
+            if len(split_modality) > 1:
+                aggr_type = self.modality2aggr[split_modality[0]]
+                name = f'{aggr_type}_{split_modality[1]}'
             else:
-                data_dict[modality_name] = self.modality_augmentation_dict[modality_name](data)
-        label = self.get_label(idx)
-        #return data
-        return tuple(data_dict.items()), label
+                name = f'{aggr_type}'
+
+            output_labels_dict[name] = label
+            
+        return output_data_tuple, tuple(output_labels_dict.items())
+        
 
 class AggrBatchSampler(torch.utils.data.sampler.Sampler):
     def __init__(self, time_intervals_df, batch_size, shuffle=False):

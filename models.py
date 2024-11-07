@@ -394,26 +394,56 @@ class EqualSizedTransformerModalitiesFusion(nn.Module):
         modality_features_bounds_dict = {}
         prev_size = 0
         modalities_features_list = []
+        sequence_lengths = []
+        for modality_name, data in modalities_features_dict.items():
+            #batch_size = data.size(1)
+            seq_len = data.size(1)
+            
+            sequence_lengths.append({modality_name:seq_len})
+            modality_features_bounds_dict[modality_name] = [prev_size, prev_size+seq_len]
+            modalities_features_list.append(data)
+            prev_size = prev_size+seq_len
+        concat_features = torch.cat(modalities_features_list, dim=1)
+        # если на вход поступил нулевой тензор, то это означает отсутствие модальности
+        zero_features = concat_features.sum(dim=2)
+        key_padding_mask = zero_features == 0
+
+        # генерируем маску
+        fused_features = self.modality_fusion_transformer(concat_features, src_key_padding_mask=key_padding_mask)
+        #return fused_features, modality_features_bounds
+        return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
+
+class AveragedFeaturesTransformerFusion(EqualSizedTransformerModalitiesFusion):
+            
+    def forward(self, modalities_features_dict):
+
+        # усреднение
+        modalities_features_dict = {k:v.mean(dim=1).unsqueeze(1) for k, v in modalities_features_dict.items()}
+        
+        modality_features_bounds_dict = {}
+        prev_size = 0
+        modalities_features_list = []
         for modality_name, data in modalities_features_dict.items():
             size = data.size(1)
             modality_features_bounds_dict[modality_name] = [prev_size, prev_size+size]
             modalities_features_list.append(data)
             prev_size = prev_size+size
         concat_features = torch.cat(modalities_features_list, dim=1)
+        
         fused_features = self.modality_fusion_transformer(concat_features)
         #return fused_features, modality_features_bounds
         return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
 
 class MultimodalModel(nn.Module):
-    def __init__(self, modality_extractors_dict, modality_fusion_module, modality_classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
+    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
         super().__init__()
         self.modality_extractors_dict = modality_extractors_dict
         self.modality_features_shapes_dict = modality_features_shapes_dict
         self.modality_fusion_module = modality_fusion_module#
-        self.modality_classifiers_dict = modality_classifiers_dict
-    def forward(self, input_data):
-        # извлечение признаков
-        modlalities_features_dict = {}
+        self.classifiers_dict = classifiers_dict
+
+    def extract_features(self, input_data):
+        modalities_features_dict = {}
         for modality_names, modality_batch in input_data:
             batch_size = modality_batch.size(0)
             # шаблон - <modality_name>_EMPTY; EMPTY означает, что модальность для выбранного экземпляра данных отсутствует
@@ -438,16 +468,58 @@ class MultimodalModel(nn.Module):
                     features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors], ret_type='features')
                     # ставим на места не пустых пакетов (batches) извлеченные признаки
                     modality_features[not_empty_tensors] = features
-            modlalities_features_dict[modality_name] = modality_features
+            modalities_features_dict[modality_name] = modality_features
+
+        # modlalities_features_dict = {'modality_name': modality_features_tensor}
+        return dict(sorted(modalities_features_dict.items())) 
+
+    def forward(self, input_data):
+        # извлечение признаков
+        modalities_features_dict = self.extract_features(input_data)
         
         # выполняем слияние модальностей
-        modlalities_features_dict = self.modality_fusion_module(modlalities_features_dict)
+        modalities_features_dict = self.modality_fusion_module(modalities_features_dict)
+        #return modalities_features_dict
         # Выполнение классификации
         output_dict = {}
-        for modality_name in self.modality_classifiers_dict:
-            output_dict[modality_name] = self.modality_classifiers_dict[modality_name](modlalities_features_dict[modality_name])
+        for aggr_type in self.classifiers_dict:
+            output_dict[aggr_type] = self.classifiers_dict[aggr_type](modalities_features_dict[aggr_type])
 
         return output_dict
+    
+class PhysVerbModel(MultimodalModel):
+    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
+        super().__init__(modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num)
+        
+    def forward(self, input_data):
+        # извлечение признаков
+        modalities_features_dict = self.extract_features(input_data)
+        
+
+
+
+        modalities_names = list(modalities_features_dict.keys())
+        
+        # выполняем слияние модальностей
+        after = self.modality_fusion_module(modalities_features_dict)
+        return modalities_features_dict, after
+        # слияние аудио и текста в единый тип агрессии
+        for modality_name, features in self.modalities_features_dict.items():
+            pass 
+        return modalities_features_dict
+
+        
+        verb_ag
+        modalities_features_dict
+        # Выполнение классификации
+        output_dict = {}
+        for modality_name in self.classifiers_dict:
+            aggr_type = self.modality2aggr[modality_name]
+            output_dict[aggr_type] = self.classifiers_dict[aggr_type](modalities_features_dict[modality_name])
+
+        return output_dict
+
     
 class AudioTextualModel(nn.Module):
     def __init__(self, audio_extractor_model, text_extractor_model, hidden_size, class_num):
