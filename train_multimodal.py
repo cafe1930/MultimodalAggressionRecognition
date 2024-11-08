@@ -34,6 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--path_to_dataset',  required=True)
     parser.add_argument('--path_to_intersections_csv')
     parser.add_argument('--path_to_train_test_split_json')
+    parser.add_argument('--gpu_device_idx', type=int)
     parser.add_argument('--class_num', type=int)
     parser.add_argument('--resume_training', action='store_true')
     parser.add_argument('--path_to_checkpoint')
@@ -48,20 +49,21 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        #r'/home/ubuntu/mikhail_u/DATA/DATSET_V0',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
         r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        #r'/home/ubuntu/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
+        '--gpu_device_idx', 0,
         '--class_num', '2',
-        '--epoch_num', '1',
-        '--batch_size', '32',
+        '--epoch_num', '100',
+        '--batch_size', '64',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -83,13 +85,14 @@ if __name__ == '__main__':
     max_embeddings_len = args.max_embeddings_len
     video_frames_num = args.video_frames_num
     video_window_size = args.video_window_size
+    gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Text video'
+    model_name = 'Video Extr-2 Fus-0'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        'audio',
-        'text',
+        #'audio',
+        #'text',
         'video'
         ]
     aggr_types_list = set()
@@ -112,14 +115,17 @@ if __name__ == '__main__':
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         train_time_interval_combinations_df.append(df)
     train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
-    train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:300]
+    # DEBUG
+    #train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:300]
 
     test_time_interval_combinations_df =  []
     for cluster_id in combinations_indices_dict['test_clusters']:
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         test_time_interval_combinations_df.append(df)
     test_time_interval_combinations_df = pd.concat(test_time_interval_combinations_df, ignore_index=True)
-    test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:300]
+    # DEBUG
+    #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:300]
+    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
     sample_rate = bundle.sample_rate
@@ -159,12 +165,15 @@ if __name__ == '__main__':
         'video': test_video_transform
     }
     test_transforms_dict = {k:v for k,v in test_transforms_dict.items()if k in modalities_list}
+
+    device = torch.device(f'cuda:{gpu_device_idx}')
+
     train_dataset = MultimodalPhysVerbDataset(
         time_intervals_df=train_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
         actual_modalities_list=modalities_list,
-        device='cuda',
+        device=device,
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
     test_dataset = MultimodalPhysVerbDataset(
@@ -172,7 +181,7 @@ if __name__ == '__main__':
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
         actual_modalities_list=modalities_list,
-        device='cuda',
+        device=device,
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
 
@@ -212,7 +221,7 @@ if __name__ == '__main__':
     #for data in tqdm(train_dataloader):
     #    pass
 
-    device = torch.device('cuda:0')
+    
     #device = torch.device('cpu')
     
     #audio_extractor = Wav2vec2Extractor(bundle.get_model())
@@ -234,6 +243,14 @@ if __name__ == '__main__':
         hidden_size=768,
         class_num=2
     )
+
+    # dummy class
+    class E(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.e = Swin3d_T_extractor(frame_num=video_frames_num, window_size=video_window_size)
+        def forward(self, x, ret_type='PIDOR EPTA'):
+            return self.e(x)
 
     video_extractor = Swin3d_T_extractor(frame_num=video_frames_num, window_size=video_window_size)
 
