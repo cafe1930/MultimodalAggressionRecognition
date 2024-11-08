@@ -182,9 +182,6 @@ class Wav2vecExtractor(nn.Module):
     def forward(self, x):
         with torch.no_grad():
             features = self.wav2vec(x).permute(0, 2, 1)
-        #print(features.shape)
-        #print()
-        #exit()
 
         return features
 
@@ -192,8 +189,6 @@ class Wav2vec2Extractor(Wav2vecExtractor):
     def forward(self, x):
         with torch.no_grad():
             features = self.wav2vec.extract_features(x)[0][-1]
-        #print(features.shape)
-        #exit()
 
         return features 
     
@@ -262,13 +257,17 @@ class MultiModalCrossEntropyLoss(nn.Module):
 class AudioCnn1DExtractorWrapper(nn.Module):
         def __init__(self, hidden_size):
             super().__init__()
-            self.extractor = CNN1D(class_num=2)
+            self.extractor = CNN1D(class_num=2).extractor
             self.adaptor = nn.Sequential(
+                #nn.Flatten(),
                 nn.Linear(512, hidden_size),
                 nn.Dropout(0.3)
             )
-        def forward(self, x, ret_type='features'):
-            h = self.extractor(x, ret_type)
+        def forward(self, x):
+            if len(x.shape) == 2:
+                x = x.unsqueeze(1)
+            h = self.extractor(x).permute(0, 2, 1)
+
             return self.adaptor(h)
 
 
@@ -340,7 +339,7 @@ class TransformerSequenceProcessor(nn.Module):
             transformer_layer,
             num_layers=transformer_layer_num,
             norm=nn.LayerNorm(hidden_size))
-        
+        '''
         self.average_features_sequence = SequenceAverageFeatures(hidden_size=hidden_size)
         self.classifier = nn.Sequential(
             nn.Linear(hidden_size, 256),
@@ -348,11 +347,11 @@ class TransformerSequenceProcessor(nn.Module):
             nn.Dropout(0.3),
             nn.Linear(256, class_num)
             )
-
-    def forward(self, x, ret_type='classifier'):
+        '''
+    def forward(self, x):
         #with torch.no_grad():
         features = self.feature_extractor(x)
-        transformer_sequence_features = self.transformer_squence_processing(features)
+        return self.transformer_squence_processing(features)
         
         if ret_type=='classifier' or ret_type=='all':
             avg_features = self.average_features_sequence(transformer_sequence_features)
@@ -428,19 +427,23 @@ class AveragedFeaturesTransformerFusion(EqualSizedTransformerModalitiesFusion):
             modality_features_bounds_dict[modality_name] = [prev_size, prev_size+size]
             modalities_features_list.append(data)
             prev_size = prev_size+size
+
         concat_features = torch.cat(modalities_features_list, dim=1)
+
+        zero_features = concat_features.sum(dim=2)
+        key_padding_mask = zero_features == 0
         
-        fused_features = self.modality_fusion_transformer(concat_features)
+        fused_features = self.modality_fusion_transformer(concat_features, src_key_padding_mask=key_padding_mask)
         #return fused_features, modality_features_bounds
         return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
 
 class MultimodalModel(nn.Module):
-    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
+    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers, modality_features_shapes_dict, hidden_size, class_num):
         super().__init__()
         self.modality_extractors_dict = modality_extractors_dict
         self.modality_features_shapes_dict = modality_features_shapes_dict
         self.modality_fusion_module = modality_fusion_module#
-        self.classifiers_dict = classifiers_dict
+        self.classifiers = classifiers
 
     def extract_features(self, input_data):
         modalities_features_dict = {}
@@ -459,13 +462,12 @@ class MultimodalModel(nn.Module):
             modality_features_shape = self.modality_features_shapes_dict[modality_name]
             modality_features_shape = [batch_size] + modality_features_shape
             modality_features = torch.zeros(modality_features_shape, device=modality_batch.device)
-            #print(modality_name)
-            #print(modality_features.shape)
+
             if len(modality_names) > 0:
                 #modality_name = modality_names[0]
                 if modality_name in self.modality_extractors_dict:
                     # выполняем извлечение признаков
-                    features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors], ret_type='features')
+                    features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors])
                     # ставим на места не пустых пакетов (batches) извлеченные признаки
                     modality_features[not_empty_tensors] = features
             modalities_features_dict[modality_name] = modality_features
@@ -482,43 +484,112 @@ class MultimodalModel(nn.Module):
         #return modalities_features_dict
         # Выполнение классификации
         output_dict = {}
-        for aggr_type in self.classifiers_dict:
-            output_dict[aggr_type] = self.classifiers_dict[aggr_type](modalities_features_dict[aggr_type])
+        for aggr_type in self.classifiers:
+            output_dict[aggr_type] = self.classifiers[aggr_type](modalities_features_dict[aggr_type])
 
         return output_dict
     
+    def get_output_names(self):
+        return list(self.classifiers.keys())
+    
+class AudioTextAdaptor(nn.Module):
+    def __init__(self, target_dim, audio_dim=None, text_dim=None, p_dropout=0.3):
+        super().__init__()
+        
+        audio_text_adaptors_dict = {}
+        if audio_dim is not None:
+            audio_text_adaptors_dict['audio'] = nn.Sequential(
+                nn.Linear(audio_dim, target_dim),
+                nn.Dropout(p_dropout))
+
+        if text_dim is not None:
+            audio_text_adaptors_dict['text'] = nn.Sequential(
+                nn.Linear(text_dim, target_dim),
+                nn.Dropout(p_dropout))
+        self.audio_text_adaptors_dict = nn.ModuleDict(audio_text_adaptors_dict)
+
+    def forward(self, audio_text_features_dict):
+        # усредняем входные векторы признаков
+        audio_text_features_dict = {modality: features.mean(dim=1) for modality, features in audio_text_features_dict.items()}
+        combined_modality = []
+        for modality_name, features in audio_text_features_dict.items():
+            result = self.audio_text_adaptors_dict[modality_name](features)
+            combined_modality.append(result)
+        combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
+        return combined_modality
+
+class PhysVerbClassifier(nn.Module):
+    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    def __init__(self, modalities_list, class_num, input_verb_size, input_phys_size, p_droput=0.3):
+        super().__init__()
+        self.modalities_list = modalities_list
+        self.class_num = class_num
+        adaptors_dict = {}
+        classifiers_dict = {}
+        if 'video' in modalities_list:
+            adaptors_dict['phys'] = SequenceAverageFeatures(hidden_size=input_phys_size)
+            classifiers_dict['phys'] = nn.Sequential(
+                nn.Linear(input_phys_size, 256),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, class_num)
+            )
+        verb_modalities_sizes = {}
+        if 'audio' in modalities_list:
+            verb_modalities_sizes['audio_dim'] = input_verb_size
+        if 'text' in modalities_list:
+            verb_modalities_sizes['text_dim'] = input_verb_size
+
+
+
+        if len(verb_modalities_sizes) > 0:
+            adaptors_dict['verb'] = AudioTextAdaptor(target_dim=input_verb_size, **verb_modalities_sizes)
+        
+        if len(verb_modalities_sizes) > 0:
+            classifiers_dict['verb'] = nn.Sequential(
+                nn.Linear(input_verb_size, 256),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, class_num)
+            )
+        self.classifiers_dict = nn.ModuleDict(classifiers_dict)
+        self.adaptors_dict = nn.ModuleDict(adaptors_dict)
+        
+    def forward(self, modalities_features_dict):
+        output_dict = {}
+        if 'video' in modalities_features_dict:
+            video_features = modalities_features_dict['video']
+            adapted_phys_features = self.adaptors_dict['phys'](video_features)
+            output_dict['phys'] = self.classifiers_dict['phys'](adapted_phys_features)
+        verb_features = {}
+        if 'audio' in modalities_features_dict:
+            verb_features['audio'] = modalities_features_dict['audio']
+        if 'text' in modalities_features_dict:
+            verb_features['text'] = modalities_features_dict['text']
+
+        if len(verb_features) > 0:
+            adapted_verb_features = self.adaptors_dict['verb'](verb_features)
+            output_dict['verb'] = self.classifiers_dict['verb'](adapted_verb_features)
+
+        return output_dict
+   
 class PhysVerbModel(MultimodalModel):
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
-    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num):
-        super().__init__(modality_extractors_dict, modality_fusion_module, classifiers_dict, modality_features_shapes_dict, hidden_size, class_num)
-        
+    
     def forward(self, input_data):
         # извлечение признаков
         modalities_features_dict = self.extract_features(input_data)
-        
-
-
 
         modalities_names = list(modalities_features_dict.keys())
         
         # выполняем слияние модальностей
-        after = self.modality_fusion_module(modalities_features_dict)
-        return modalities_features_dict, after
-        # слияние аудио и текста в единый тип агрессии
-        for modality_name, features in self.modalities_features_dict.items():
-            pass 
-        return modalities_features_dict
-
+        fused_features_dict = self.modality_fusion_module(modalities_features_dict)
         
-        verb_ag
-        modalities_features_dict
-        # Выполнение классификации
-        output_dict = {}
-        for modality_name in self.classifiers_dict:
-            aggr_type = self.modality2aggr[modality_name]
-            output_dict[aggr_type] = self.classifiers_dict[aggr_type](modalities_features_dict[modality_name])
+        out_res = self.classifiers(fused_features_dict)
+        return out_res
 
-        return output_dict
+    def get_output_names(self):
+        return list(self.classifiers.classifiers_dict.keys())
 
     
 class AudioTextualModel(nn.Module):
@@ -546,7 +617,7 @@ class AudioTextualModel(nn.Module):
         
         #audio_features = self.audio_extractor(data_dict['audio'], ret_type='features')
         audio_features = self.audio_extractor(data_dict['audio'])
-        text_features = self.text_extractor(data_dict['text'], ret_type='features')
+        text_features = self.text_extractor(data_dict['text'])
 
         #fused_audio, fused_text = self.modality_fusion_module([audio_features, text_features])
 
@@ -631,18 +702,19 @@ class CNN1D(nn.Module):
             nn.Linear(512, class_num)    
         )
 
-    def forward(self, x, ret_type='classifier'):
+    def forward(self, x):
         
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
         h = self.extractor(x)
+        return self.classifier(h)
         #return self.classifier(self.extractor(x))
         if ret_type == 'features':
             return h.permute(0, 2, 1)
         elif ret_type == 'classifier':
             return self.classifier(h)
         #batch_size, hidden_size, features_num = h.shape
-        #print(h.shape)
+
         #return h#.permute(1, 2)#self.classifier(h)
 
 if __name__ == '__main__':

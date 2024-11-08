@@ -73,18 +73,7 @@ class TorchSupervisedTrainer:
         #!!!!!!!
         self.checkpoint_criterion = checkpoint_criterion
         self.best_criterion = self.define_best_criterion(checkpoint_criterion)
-        '''
-        if checkpoint_criterion == 'loss':
-            # если контролируем loss, то берем изначально большое значение критерия
-            self.best_criterion = 999999
-            # функция сравнения текущего значения метрики с лучшим
-            #self.is_best_result = lambda x,y: x<y
-        else:
-            # если контролируем другую метрику (accuracy, recall и т.д.), то берем изначально нулевое значение критерия
-            self.best_criterion = 0
-            # функция сравнения текущего значения метрики с лучшим
-            #self.is_best_result = lambda x,y: x>y
-        '''
+        
 
         self.train_samples_num = len(self.train_loader.dataset)
         self.test_samples_num = len(self.test_loader.dataset)
@@ -99,7 +88,6 @@ class TorchSupervisedTrainer:
         self.saving_dir = os.path.join(saving_dir, current_date_time+f' ({model_name})')
         if not os.path.isdir(self.saving_dir):
             os.mkdir(self.saving_dir)
-
     
     def define_best_criterion(self, checkpoint_criterion):
         if checkpoint_criterion == 'loss':
@@ -118,7 +106,6 @@ class TorchSupervisedTrainer:
     def init_log(self):
         self.training_log = pd.DataFrame(columns=self.metrics_dict.keys())
         self.testing_log = pd.DataFrame(columns=self.metrics_dict.keys())
-
 
     def train_step(self, batch):
         '''
@@ -389,6 +376,8 @@ class TorchSupervisedTrainer:
 
             # выводим обучающие результаты на экран
             self.print_result(train_results_dict)
+
+            
             
             # сохраняем результат тренировочных метрик эпохи
             self.update_log('train', train_results_dict)
@@ -838,35 +827,10 @@ class RNN_trainer(TorchSupervisedTrainer):
                 
                 metric_value = result_dict[model_name][metric_name]
                 model_metrics_dict[metric_name] = metric_value
-                '''
-                try:
-                    # если metric_value - это вектор, то выводим на экран среднее значение метрики
-                    size = len(metric_value)
-                    metric_value = np.mean(metric_value)
-                except TypeError:
-                    pass
                 
-
-                try:
-                    iter(metric_value)
-                    metrics_string_to_print += f'{metric_name}: ['
-                    for m in metric_value:
-                        if m < 0.001:
-                            metrics_string_to_print += '{:.2e}, '.format(m)
-                        else:
-                            metrics_string_to_print += '{:.3f}, '.format(m)
-                    metrics_string_to_print += ']'
-                except TypeError:
-                    if metric_value < 0.001:
-                        # для краткости выводим очень малые чила в экспоненциальной записи
-                        metrics_string_to_print += '{}: {:.2e}; '.format(metric_name, metric_value)
-                    else:
-                        metrics_string_to_print += '{}: {:.3f}; '.format(metric_name, metric_value)
-                '''
-            #metrics_string_to_print += '\n'
             metrics_df[model_name] = model_metrics_dict
         # выводим метрики на экран
-        #print(metrics_string_to_print)
+        
         
         print(metrics_df)
         print('------------------------------------------')
@@ -904,7 +868,7 @@ class RNN_trainer(TorchSupervisedTrainer):
 class MultimodalTrainer(RNN_trainer):
 
     def define_best_criterion(self, checkpoint_criterion):        
-        self.model_names_list = list(self.model.modality_extractors_dict.keys())
+        self.model_names_list = list(self.model.get_output_names())
         best_criterion_dict = {}
         for model_name in self.model_names_list:
             if checkpoint_criterion == 'loss':
@@ -921,6 +885,7 @@ class MultimodalTrainer(RNN_trainer):
         return best_criterion_dict
     
     def create_batch_results_dict(self, ret_loss, pred_vals, true_vals):
+        
         
         # обработка результатов
         modality_labels_dict = {}
@@ -944,17 +909,7 @@ class MultimodalTrainer(RNN_trainer):
                     ret_loss.pop(modality_name)
                 except:
                     pass
-        '''
-        print('PRED')
-        print(pred_vals)
-        print()
-        print('LABELS')
-        print(modality_labels_dict)
-        print()
-        print('LOSS')
-        print(ret_loss)
-        print()
-        '''
+        
         return {'loss': ret_loss, 'true': modality_labels_dict, 'pred': pred_vals}
     
     def compute_epoch_results(self, epoch_results_list, mode):
@@ -962,7 +917,7 @@ class MultimodalTrainer(RNN_trainer):
         ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
         Здесь мы 'парсим' данные, полученные в ходе обучения или тестирования
         '''
-
+        
         if mode =='train':
             dataset_size = self.train_samples_num
         elif mode == 'test':
@@ -1056,7 +1011,8 @@ class MultimodalTrainer(RNN_trainer):
         except:
             torch.save(self.model.state_dict(), path_to_best_checkpoint)
 
-    def save_best_weights(self, test_results_dict):        
+    def save_best_weights(self, test_results_dict):
+        
         for model_name, test_results in test_results_dict.items():
             best = self.best_criterion[model_name]
             err = test_results[self.checkpoint_criterion]
@@ -1075,7 +1031,7 @@ class MultimodalTrainer(RNN_trainer):
     def init_log(self):
         self.training_log = {}
         self.testing_log = {}
-        for name in self.model.modality_extractors_dict.keys():
+        for name in self.model.get_output_names():
             self.training_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
             self.testing_log[name] = pd.DataFrame(columns=self.metrics_dict.keys())
     

@@ -26,7 +26,7 @@ from torchvision.transforms import v2
 
 from datasets import MultimodalPhysVerbDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
 from trainer import MultimodalTrainer
-from models import AveragedFeaturesTransformerFusion, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
+from models import AveragedFeaturesTransformerFusion, PhysVerbClassifier, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -48,10 +48,12 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
+        #r'/home/ubuntu/mikhail_u/DATA/DATSET_V0',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
         r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
+        #r'/home/ubuntu/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
@@ -86,7 +88,7 @@ if __name__ == '__main__':
     model_name = 'Text video'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        #'audio',
+        'audio',
         'text',
         'video'
         ]
@@ -110,13 +112,14 @@ if __name__ == '__main__':
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         train_time_interval_combinations_df.append(df)
     train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
+    train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:300]
 
     test_time_interval_combinations_df =  []
     for cluster_id in combinations_indices_dict['test_clusters']:
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         test_time_interval_combinations_df.append(df)
     test_time_interval_combinations_df = pd.concat(test_time_interval_combinations_df, ignore_index=True)
-
+    test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:300]
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
     sample_rate = bundle.sample_rate
@@ -219,14 +222,14 @@ if __name__ == '__main__':
     audio_extractor = AudioCnn1DExtractorWrapper(hidden_size=768)
     audio_model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
-        transformer_layer_num=2,
+        transformer_layer_num=1,
         transformer_head_num=8,
         hidden_size=768,
         class_num=class_num
         )
     text_model = TransformerSequenceProcessor(
         extractor_model=nn.Sequential(),
-        transformer_layer_num=2,
+        transformer_layer_num=1,
         transformer_head_num=8,
         hidden_size=768,
         class_num=2
@@ -236,16 +239,16 @@ if __name__ == '__main__':
 
     video_model = TransformerSequenceProcessor(
         extractor_model=video_extractor,
-        transformer_layer_num=2,
+        transformer_layer_num=1,
         transformer_head_num=8,
         hidden_size=768,
         class_num=class_num
         )
        
     # определяем размерности векторов признаков для многомодальной обработки
-    video_features_shape = video_model(torch.zeros([1, 3, video_frames_num, 112, 112]), ret_type='features').shape
-    audio_features_shape = audio_extractor(torch.zeros([1, max_audio_len]), ret_type='features').shape
-    text_features_shape = text_model(torch.zeros([1, max_embeddings_len, 768]), ret_type='features').shape
+    video_features_shape = video_model(torch.zeros([1, 3, video_frames_num, 112, 112])).shape
+    audio_features_shape = audio_extractor(torch.zeros([1, max_audio_len])).shape
+    text_features_shape = text_model(torch.zeros([1, max_embeddings_len, 768])).shape
     modality_features_shapes_dict = {
         'audio':list(audio_features_shape)[1:],
         'text':list(text_features_shape)[1:],
@@ -260,8 +263,8 @@ if __name__ == '__main__':
     modality_extractors_dict = {k:v for k,v in modality_extractors_dict.items() if k in modalities_list}
     modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
 
-    modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
-    #modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    #modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=1, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
     '''
     aggr_classifiers_dict = {
         'phys':OutputClassifier(768, 2),
@@ -269,10 +272,17 @@ if __name__ == '__main__':
     }
     aggr_classifiers_dict = {k:v for k,v in aggr_classifiers_dict.items() if k in aggr_types_list}
     aggr_classifiers_dict = nn.ModuleDict(aggr_classifiers_dict)
+    '''
+    aggr_classifiers = PhysVerbClassifier(
+        modalities_list=modalities_list,
+        class_num=2,
+        input_verb_size=768,
+        input_phys_size=768
+        )
     model = PhysVerbModel(
         modality_extractors_dict=modality_extractors_dict,
         modality_fusion_module=modality_fusion_module,
-        classifiers_dict=aggr_classifiers_dict,
+        classifiers=aggr_classifiers,
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
         class_num=2)
@@ -292,25 +302,28 @@ if __name__ == '__main__':
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
         class_num=2)
-    
+    '''
     model.to(device)
-    
-    optimizer = torch.optim.Adam(model.parameters())
-
-    for data, labels in train_dataloader:
+    '''
+    for data, labels in tqdm(train_dataloader):
         break
     ret = model(data)
-    print(ret[0])
-    print()
-    print(ret[1])
-    print()
-    print(labels)
+    print(ret)
     exit()
+    '''
+    optimizer = torch.optim.Adam(model.parameters())
+
+    #for data, labels in train_dataloader:
+    #    break
+    #ret = model(data)
+    #print(ret)
+    #print(labels)
+    #exit()
 
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
     #criterion = nn.CrossEntropyLoss()
-    criterion = MultiModalCrossEntropyLoss(modalities_list)
+    criterion = MultiModalCrossEntropyLoss(modalities_list=aggr_types_list)
 
     metrics_dict = {
         'loss': None,
