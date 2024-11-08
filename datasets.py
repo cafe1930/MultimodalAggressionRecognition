@@ -467,7 +467,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
     
     def __len__(self):
         return len(self.time_intervals_df)
-    
+        
     def __getitem__(self, idx):
         #!!!!
         #data_entry = self.time_intervals_df.iloc[idx]
@@ -586,7 +586,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
             output_labels_list.append((modality, label))
             
         return tuple(output_data_list), tuple(output_labels_list)
-    
+       
 class MultimodalPhysVerbDataset(MultimodalDataset):
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     def __getitem__(self, idx):
@@ -604,7 +604,18 @@ class MultimodalPhysVerbDataset(MultimodalDataset):
             output_labels_dict[name] = label
             
         return output_data_tuple, tuple(output_labels_dict.items())
-        
+    
+class MultimodalPhysVerbDatasetSpectrogram(MultimodalPhysVerbDataset):
+    spectrogram = torchaudio.transforms.Spectrogram(n_fft=512)
+    def __getitem__(self, idx):
+        output_data_tuple, output_labels_tuple = super().__getitem__(idx)
+        output_data = []
+        for modality, data in output_data_tuple:
+            if modality=='audio':
+                data = self.spectrogram(data)
+            output_data.append((modality, data))
+
+        return output_data_tuple, output_labels_tuple
 
 class AggrBatchSampler(torch.utils.data.sampler.Sampler):
     def __init__(self, time_intervals_df, batch_size, shuffle=False):

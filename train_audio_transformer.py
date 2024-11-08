@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torchaudio
+import torchvision
 
 from sklearn.model_selection import train_test_split
 
@@ -46,8 +47,8 @@ if __name__ == '__main__':
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0_train_test_split',
         r'I:\AVABOS\DATSET_V0_train_test_split',
         '--class_num', '2',
-        '--epoch_num', '30',
-        '--batch_size', '16',
+        '--epoch_num', '100',
+        '--batch_size', '32',
         '--max_audio_len', '80000'
         #'--max_audio_len', '150000'
         ]
@@ -65,11 +66,13 @@ if __name__ == '__main__':
     if resume_training == True:
         if path_to_checkpoint is None:
             raise ValueError('--path_to_checkpoint flag must be specified if --resume_training flag')
+        
+    device = torch.device('cuda:0')
  
-    #paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
-    #paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
-    paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.wav'))
-    paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.wav'))
+    paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.pt'))
+    paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.pt'))
+    #paths_to_train_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'train', 'verbal', 'pt_waveform', '*.wav'))
+    #paths_to_test_audios_list = glob.glob(os.path.join(path_to_dataset_root, 'test', 'verbal', 'pt_waveform', '*.wav'))
 
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
@@ -87,10 +90,27 @@ if __name__ == '__main__':
         #v2.ToDtype(torch.float32, scale=True)
     ])
 
-    #train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
-    #test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
-    train_dataset = WavAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
-    test_dataset = WavAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    # пример аугментация со спектрограммами
+    class MakeRGBSpectrogram(nn.Module):
+        def forward(self, x):
+            return torch.stack([x, x, x], dim=0)
+    train_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_audio_len]),
+        torchaudio.transforms.Spectrogram(n_fft=512, wkwargs={'device':device}),
+        torchaudio.transforms.FrequencyMasking(freq_mask_param=80),
+        torchaudio.transforms.TimeMasking(time_mask_param=80),
+        MakeRGBSpectrogram()
+        ])
+    test_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_audio_len]),
+        torchaudio.transforms.Spectrogram(n_fft=512, wkwargs={'device':device}),
+        MakeRGBSpectrogram()
+        ])
+
+    train_dataset = PtAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
+    test_dataset = PtAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
+    #train_dataset = WavAudioDataset(paths_to_train_audios_list, train_transform, 'cuda')
+    #test_dataset = WavAudioDataset(paths_to_test_audios_list, test_transform, 'cuda')
     
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -106,13 +126,18 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
+
+    #for data, labels in tqdm(train_dataloader):
+    #    break
+    #print(data.shape)
+    #exit()
     
     
-    device = torch.device('cuda:0')
+    
     #device = torch.device('cpu')
     
     # имя модели соответствует имени экстрактора признаков
-    model_name = '1D CNN'
+    model_name = 'audio vgg'
 
     
 
@@ -128,7 +153,8 @@ if __name__ == '__main__':
         class_num=class_num
         )
     '''
-    model = CNN1D(class_num=2)
+    #model = CNN1D(class_num=2)
+    model = torchvision.models.vgg11_bn(weights=torchvision.models.VGG11_BN_Weights.IMAGENET1K_V1)
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters())

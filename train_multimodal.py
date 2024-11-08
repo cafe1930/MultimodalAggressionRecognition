@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torchaudio
+import torchvision
 
 from sklearn.model_selection import train_test_split
 
@@ -60,10 +61,10 @@ if __name__ == '__main__':
         r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
-        '--gpu_device_idx', 0,
+        '--gpu_device_idx', '0',
         '--class_num', '2',
-        '--epoch_num', '100',
-        '--batch_size', '64',
+        '--epoch_num', '1',
+        '--batch_size', '32',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -88,11 +89,11 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Video Extr-2 Fus-0'
+    model_name = 'Video+Text Extr-0 Fus-2'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
         #'audio',
-        #'text',
+        'text',
         'video'
         ]
     aggr_types_list = set()
@@ -116,7 +117,7 @@ if __name__ == '__main__':
         train_time_interval_combinations_df.append(df)
     train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
     # DEBUG
-    #train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:300]
+    #train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:500]
 
     test_time_interval_combinations_df =  []
     for cluster_id in combinations_indices_dict['test_clusters']:
@@ -124,8 +125,8 @@ if __name__ == '__main__':
         test_time_interval_combinations_df.append(df)
     test_time_interval_combinations_df = pd.concat(test_time_interval_combinations_df, ignore_index=True)
     # DEBUG
-    #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:300]
-    
+    #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
+    device = torch.device(f'cuda:{gpu_device_idx}')    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
     sample_rate = bundle.sample_rate
@@ -148,8 +149,26 @@ if __name__ == '__main__':
         v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    train_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
-    test_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
+    #train_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
+    #test_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
+
+    # пример аугментация со спектрограммами
+    class MakeRGBSpectrogram(nn.Module):
+        def forward(self, x):
+            return torch.stack([x, x, x], dim=0)
+    train_audio_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_audio_len]),
+        torchaudio.transforms.Spectrogram(n_fft=512, wkwargs={'device':device}),
+        torchaudio.transforms.FrequencyMasking(freq_mask_param=80),
+        torchaudio.transforms.TimeMasking(time_mask_param=80),
+        MakeRGBSpectrogram()
+        ])
+    test_audio_transform = v2.Compose([
+        AppendZeroValues(target_size=[max_audio_len]),
+        torchaudio.transforms.Spectrogram(n_fft=512, wkwargs={'device':device}),
+        MakeRGBSpectrogram()
+        ])
+    
     train_text_transform = v2.Compose([AppendZeroValues(target_size=[max_embeddings_len, 768])])
     test_text_transform = v2.Compose([AppendZeroValues(target_size=[max_embeddings_len, 768])])
 
@@ -165,8 +184,6 @@ if __name__ == '__main__':
         'video': test_video_transform
     }
     test_transforms_dict = {k:v for k,v in test_transforms_dict.items()if k in modalities_list}
-
-    device = torch.device(f'cuda:{gpu_device_idx}')
 
     train_dataset = MultimodalPhysVerbDataset(
         time_intervals_df=train_time_interval_combinations_df,
@@ -184,7 +201,10 @@ if __name__ == '__main__':
         device=device,
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
-
+    
+    #print(train_dataset[50][0][0][1].shape)
+    #exit()
+    
     train_batch_sampler = AggrBatchSampler(train_time_interval_combinations_df, batch_size=batch_size, shuffle=True)
     test_batch_sampler = AggrBatchSampler(test_time_interval_combinations_df, batch_size=batch_size, shuffle=False)
 
@@ -200,7 +220,6 @@ if __name__ == '__main__':
         num_workers=0
         #pin_memory=True
     )
-
 
     '''
     train_dataloader = torch.utils.data.DataLoader(
@@ -220,7 +239,6 @@ if __name__ == '__main__':
     '''
     #for data in tqdm(train_dataloader):
     #    pass
-
     
     #device = torch.device('cpu')
     
@@ -229,6 +247,19 @@ if __name__ == '__main__':
    
     #audio_extractor = nn.Sequential(CNN1D(class_num=2),nn.Linear(512, 768),nn.Dropout(0.3))
     audio_extractor = AudioCnn1DExtractorWrapper(hidden_size=768)
+    #audio_extractor = torchvision.models.vgg11_bn(weights=torchvision.models.VGG11_BN_Weights.IMAGENET1K_V1)
+    #audio_extractor = nn.Sequential(audio_extractor.features,nn.AdaptiveAvgPool2d(1))
+
+    #res = audio_extractor(torch.randn(1, 3, 257, 313))
+    #print(res.shape)
+    #exit()
+
+    # изменяем размерность входного слоя
+    #new_proj = torch.nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+    #new_proj.weight = torch.nn.Parameter(torch.sum(audio_extractor.features[0][0].weight, dim=1).unsqueeze(1))
+    #new_proj.bias = audio_extractor.features[0][0].bias
+    #audio_extractor.features[0][0] = new_proj
+
     audio_model = TransformerSequenceProcessor(
         extractor_model=audio_extractor,
         transformer_layer_num=1,
@@ -274,14 +305,16 @@ if __name__ == '__main__':
     modality_features_shapes_dict = {k:v for k,v in modality_features_shapes_dict.items() if k in modalities_list}
     modality_extractors_dict = {
         'audio':audio_extractor,
-        'text':text_model,
-        'video':video_model
+        'text':nn.Sequential(),
+        #'text':text_model,
+        'video':video_extractor
+        #'video':video_model
     }
     modality_extractors_dict = {k:v for k,v in modality_extractors_dict.items() if k in modalities_list}
     modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
 
-    #modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
-    modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=1, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    #modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=1, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
     '''
     aggr_classifiers_dict = {
         'phys':OutputClassifier(768, 2),
@@ -293,8 +326,10 @@ if __name__ == '__main__':
     aggr_classifiers = PhysVerbClassifier(
         modalities_list=modalities_list,
         class_num=2,
-        input_verb_size=768,
-        input_phys_size=768
+        input_audio_size=audio_features_shape[-1],
+        input_text_size=text_features_shape[-1],
+        input_video_size=video_features_shape[-1],
+        verb_adaptor_out_dim=512
         )
     model = PhysVerbModel(
         modality_extractors_dict=modality_extractors_dict,
@@ -331,8 +366,8 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters())
 
     #for data, labels in train_dataloader:
-    #    break
-    #ret = model(data)
+    #    ret = model(data)
+    
     #print(ret)
     #print(labels)
     #exit()
@@ -341,6 +376,7 @@ if __name__ == '__main__':
 
     #criterion = nn.CrossEntropyLoss()
     criterion = MultiModalCrossEntropyLoss(modalities_list=aggr_types_list)
+    
 
     metrics_dict = {
         'loss': None,

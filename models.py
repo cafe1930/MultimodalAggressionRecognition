@@ -247,10 +247,15 @@ class MultiModalCrossEntropyLoss(nn.Module):
             modality_names = modality_names[not_empty_tensors]
             if len(modality_names) > 0:
                 if modality_name in self.modalities_list:
-                    output_dict[modality_name][~not_empty_tensors].detach_()
+                    #output_dict[modality_name][~not_empty_tensors].detach_()
                     preds = output_dict[modality_name][not_empty_tensors]
                     labels = modality_labels[not_empty_tensors]
+                    #print(preds)
+                    #print()
+                    #print(labels)
                     losses_dict[modality_name] = self.criterion(preds, labels)
+        #print(losses_dict)
+        #print(target)
 
         return losses_dict
 
@@ -258,17 +263,19 @@ class AudioCnn1DExtractorWrapper(nn.Module):
         def __init__(self, hidden_size):
             super().__init__()
             self.extractor = CNN1D(class_num=2).extractor
+            '''
             self.adaptor = nn.Sequential(
                 #nn.Flatten(),
                 nn.Linear(512, hidden_size),
                 nn.Dropout(0.3)
             )
+            '''
         def forward(self, x):
             if len(x.shape) == 2:
                 x = x.unsqueeze(1)
             h = self.extractor(x).permute(0, 2, 1)
 
-            return self.adaptor(h)
+            return h#self.adaptor(h)
 
 
 class MultiCrossEntropyLoss(nn.Module):
@@ -378,7 +385,10 @@ class OutputClassifier(nn.Module):
         return self.classifier(x)
 
 class EqualSizedTransformerModalitiesFusion(nn.Module):
-    def __init__(self, fusion_transformer_layer_num, fusion_transformer_hidden_size, fusion_transformer_head_num):
+    def __init__(self,
+                 fusion_transformer_layer_num,
+                 fusion_transformer_hidden_size,
+                 fusion_transformer_head_num):
         super().__init__()
         
         transformer_layer = nn.TransformerEncoderLayer(
@@ -409,6 +419,9 @@ class EqualSizedTransformerModalitiesFusion(nn.Module):
 
         # генерируем маску
         fused_features = self.modality_fusion_transformer(concat_features, src_key_padding_mask=key_padding_mask)
+        #fused_features = self.modality_fusion_transformer(concat_features)
+        #print(f'Fused features before:\t\t{fused_features.shape}, has NaN:{torch.isnan(fused_features).sum().item()>0}')
+        #print(fused_features)
         #return fused_features, modality_features_bounds
         return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
 
@@ -500,54 +513,59 @@ class AudioTextAdaptor(nn.Module):
         if audio_dim is not None:
             audio_text_adaptors_dict['audio'] = nn.Sequential(
                 nn.Linear(audio_dim, target_dim),
-                nn.Dropout(p_dropout))
+                nn.ReLU(),
+                nn.Dropout(p_dropout),)
 
         if text_dim is not None:
             audio_text_adaptors_dict['text'] = nn.Sequential(
                 nn.Linear(text_dim, target_dim),
-                nn.Dropout(p_dropout))
+                nn.ReLU(),
+                nn.Dropout(p_dropout),)
         self.audio_text_adaptors_dict = nn.ModuleDict(audio_text_adaptors_dict)
 
     def forward(self, audio_text_features_dict):
         # усредняем входные векторы признаков
-        audio_text_features_dict = {modality: features.mean(dim=1) for modality, features in audio_text_features_dict.items()}
+        #audio_text_features_dict = {modality: features.mean(dim=1) for modality, features in audio_text_features_dict.items()}
         combined_modality = []
         for modality_name, features in audio_text_features_dict.items():
             result = self.audio_text_adaptors_dict[modality_name](features)
+            #print(result.shape)
             combined_modality.append(result)
-        combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
+        # если мы на выход подаем усреденный вектор
+        #combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
+        # если мы на выход подаем векторы двух модальностей
+        #print(combined_modality)
+        combined_modality = torch.cat(combined_modality, dim=2).mean(dim=1)
         return combined_modality
 
 class PhysVerbClassifier(nn.Module):
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
-    def __init__(self, modalities_list, class_num, input_verb_size, input_phys_size, p_droput=0.3):
+    def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput=0.3):
         super().__init__()
         self.modalities_list = modalities_list
         self.class_num = class_num
         adaptors_dict = {}
         classifiers_dict = {}
         if 'video' in modalities_list:
-            adaptors_dict['phys'] = SequenceAverageFeatures(hidden_size=input_phys_size)
+            adaptors_dict['phys'] = SequenceAverageFeatures(hidden_size=input_video_size)
             classifiers_dict['phys'] = nn.Sequential(
-                nn.Linear(input_phys_size, 256),
+                nn.Linear(input_video_size, 256),
                 nn.ReLU(),
-                nn.Dropout(0.3),
+                nn.Dropout(p_droput),
                 nn.Linear(256, class_num)
             )
         verb_modalities_sizes = {}
         if 'audio' in modalities_list:
-            verb_modalities_sizes['audio_dim'] = input_verb_size
+            verb_modalities_sizes['audio_dim'] = input_audio_size
         if 'text' in modalities_list:
-            verb_modalities_sizes['text_dim'] = input_verb_size
-
-
+            verb_modalities_sizes['text_dim'] = input_text_size
 
         if len(verb_modalities_sizes) > 0:
-            adaptors_dict['verb'] = AudioTextAdaptor(target_dim=input_verb_size, **verb_modalities_sizes)
+            adaptors_dict['verb'] = AudioTextAdaptor(target_dim=verb_adaptor_out_dim, **verb_modalities_sizes)
         
         if len(verb_modalities_sizes) > 0:
             classifiers_dict['verb'] = nn.Sequential(
-                nn.Linear(input_verb_size, 256),
+                nn.Linear(verb_adaptor_out_dim*len(verb_modalities_sizes), 256),
                 nn.ReLU(),
                 nn.Dropout(0.3),
                 nn.Linear(256, class_num)
@@ -579,11 +597,17 @@ class PhysVerbModel(MultimodalModel):
     def forward(self, input_data):
         # извлечение признаков
         modalities_features_dict = self.extract_features(input_data)
+        #print(f'Extracted features:\t\t{modalities_features_dict["video"].shape}, has NaN: {torch.isnan(modalities_features_dict["video"]).sum().item()>0}')
+        #print(modalities_features_dict)
 
-        modalities_names = list(modalities_features_dict.keys())
+        #modalities_names = list(modalities_features_dict.keys())
+        
         
         # выполняем слияние модальностей
         fused_features_dict = self.modality_fusion_module(modalities_features_dict)
+        #print(f'Fused features after:\t\t{fused_features_dict["video"].shape}, has NaN: {torch.isnan(fused_features_dict["video"]).sum().item()>0}')
+        #print()
+        #print(fused_features_dict)
         
         out_res = self.classifiers(fused_features_dict)
         return out_res
@@ -660,9 +684,9 @@ class CNN1D(nn.Module):
             nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
+            #nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(128),
+            #nn.ReLU(),
 
             nn.MaxPool1d(4, 4),
             nn.Dropout1d(0.1),
@@ -673,9 +697,9 @@ class CNN1D(nn.Module):
             nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
             nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
+            #nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(256),
+            #nn.ReLU(),
 
             nn.MaxPool1d(4, 4),
             nn.Dropout1d(0.1),
@@ -690,9 +714,9 @@ class CNN1D(nn.Module):
 
             nn.Dropout1d(0.1),
 
-            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
-            nn.BatchNorm1d(512),
-            nn.ReLU()
+            #nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(512),
+            #nn.ReLU()
             )
 
         self.classifier = nn.Sequential(

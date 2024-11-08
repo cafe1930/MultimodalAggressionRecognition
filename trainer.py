@@ -142,6 +142,7 @@ class TorchSupervisedTrainer:
         pred = self.model(data)
         # 3. Вычисление ошибки
         loss = self.criterion(pred, true_vals)
+        
         # 4. Обратное распространение ошибки
         loss.backward()
         # 5. Обновление весов для всех задействованных оптимизаторов
