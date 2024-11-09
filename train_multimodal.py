@@ -50,15 +50,15 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        #r'/home/ubuntu/mikhail_u/DATASET_V0',
+        r'/home/ubuntu/mikhail_u/DATASET_V0',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
-        r'I:\AVABOS\DATSET_V0',
+        #r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        #r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
+        r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
-        r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
         '--gpu_device_idx', '0',
@@ -89,12 +89,12 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'T-fusion2L-focalloss'
+    model_name = 'V+T-fusion1L-focalloss'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        'audio',
+        #'audio',
         'text',
-        #'video'
+        'video'
         ]
     aggr_types_list = set()
     for m in modalities_list:
@@ -465,8 +465,8 @@ if __name__ == '__main__':
     print()
     '''
     aggr_types_losses_dict = {
-        'phys': weighted_verb_cross_entropy_loss,
-        'verb': weighted_phys_cross_entropy_loss
+        'phys': phys_focal_loss,
+        'verb': verb_focal_loss
     }
     aggr_types_losses_dict = {k: v for k, v in aggr_types_losses_dict.items() if k in aggr_types_list}
     criterion = MultiModalCrossEntropyLoss(modalities_losses_dict=aggr_types_losses_dict)
