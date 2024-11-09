@@ -63,8 +63,8 @@ if __name__ == '__main__':
         r'train_test_split.json',
         '--gpu_device_idx', '0',
         '--class_num', '2',
-        '--epoch_num', '1',
-        '--batch_size', '32',
+        '--epoch_num', '100',
+        '--batch_size', '64',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -89,12 +89,12 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'V-drop_noaggr-fusion2L-focalloss'
+    model_name = 'T-fusion2L-focalloss'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        #'audio',
-        #'text',
-        'video'
+        'audio',
+        'text',
+        #'video'
         ]
     aggr_types_list = set()
     for m in modalities_list:
@@ -154,10 +154,11 @@ if __name__ == '__main__':
         v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    #train_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
-    #test_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
+    train_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
+    test_audio_transform = v2.Compose([AppendZeroValues(target_size=[max_audio_len])])
 
     # пример аугментация со спектрограммами
+    '''
     class MakeRGBSpectrogram(nn.Module):
         def forward(self, x):
             return torch.stack([x, x, x], dim=0)
@@ -173,7 +174,7 @@ if __name__ == '__main__':
         torchaudio.transforms.Spectrogram(n_fft=512, wkwargs={'device':device}),
         MakeRGBSpectrogram()
         ])
-    
+    '''
     train_text_transform = v2.Compose([AppendZeroValues(target_size=[max_embeddings_len, 768])])
     test_text_transform = v2.Compose([AppendZeroValues(target_size=[max_embeddings_len, 768])])
 
@@ -320,7 +321,7 @@ if __name__ == '__main__':
     modality_extractors_dict = {k:v for k,v in modality_extractors_dict.items() if k in modalities_list}
     modality_extractors_dict = nn.ModuleDict(modality_extractors_dict)
 
-    modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=2, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
+    modality_fusion_module = EqualSizedTransformerModalitiesFusion(fusion_transformer_layer_num=1, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
     #modality_fusion_module = AveragedFeaturesTransformerFusion(fusion_transformer_layer_num=1, fusion_transformer_hidden_size=768, fusion_transformer_head_num=8)
     '''
     aggr_classifiers_dict = {
@@ -336,7 +337,7 @@ if __name__ == '__main__':
         input_audio_size=audio_features_shape[-1],
         input_text_size=text_features_shape[-1],
         input_video_size=video_features_shape[-1],
-        verb_adaptor_out_dim=512
+        verb_adaptor_out_dim=768
         )
     model = PhysVerbModel(
         modality_extractors_dict=modality_extractors_dict,
@@ -434,6 +435,12 @@ if __name__ == '__main__':
         reduction='mean',
         force_reload=False
     )
+
+    weighted_verb_cross_entropy_loss = nn.CrossEntropyLoss(verb_weights)
+    weighted_phys_cross_entropy_loss = nn.CrossEntropyLoss(phys_weights)
+
+    verb_cross_entropy_loss = nn.CrossEntropyLoss(verb_weights)
+    phys_cross_entropy_loss = nn.CrossEntropyLoss(phys_weights)
     
     '''
     print('PHYS&VERB')
@@ -458,8 +465,8 @@ if __name__ == '__main__':
     print()
     '''
     aggr_types_losses_dict = {
-        'phys': phys_focal_loss,
-        'verb': verb_focal_loss
+        'phys': weighted_verb_cross_entropy_loss,
+        'verb': weighted_phys_cross_entropy_loss
     }
     aggr_types_losses_dict = {k: v for k, v in aggr_types_losses_dict.items() if k in aggr_types_list}
     criterion = MultiModalCrossEntropyLoss(modalities_losses_dict=aggr_types_losses_dict)

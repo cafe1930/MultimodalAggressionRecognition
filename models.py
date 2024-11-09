@@ -266,19 +266,20 @@ class AudioCnn1DExtractorWrapper(nn.Module):
         def __init__(self, hidden_size):
             super().__init__()
             self.extractor = CNN1D(class_num=2).extractor
-            '''
+            
             self.adaptor = nn.Sequential(
                 #nn.Flatten(),
                 nn.Linear(512, hidden_size),
+                nn.ReLU(),
                 nn.Dropout(0.3)
             )
-            '''
+            
         def forward(self, x):
             if len(x.shape) == 2:
                 x = x.unsqueeze(1)
             h = self.extractor(x).permute(0, 2, 1)
 
-            return h#self.adaptor(h)
+            return self.adaptor(h)
 
 
 class MultiCrossEntropyLoss(nn.Module):
@@ -531,14 +532,15 @@ class AudioTextAdaptor(nn.Module):
         #audio_text_features_dict = {modality: features.mean(dim=1) for modality, features in audio_text_features_dict.items()}
         combined_modality = []
         for modality_name, features in audio_text_features_dict.items():
-            result = self.audio_text_adaptors_dict[modality_name](features)
+            result = self.audio_text_adaptors_dict[modality_name](features).mean(dim=1)
+            #print(modality_name)
             #print(result.shape)
             combined_modality.append(result)
         # если мы на выход подаем усреденный вектор
         #combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
         # если мы на выход подаем векторы двух модальностей
         #print(combined_modality)
-        combined_modality = torch.cat(combined_modality, dim=2).mean(dim=1)
+        combined_modality = torch.cat(combined_modality, dim=1)#.mean(dim=1)
         return combined_modality
 
 class PhysVerbClassifier(nn.Module):
@@ -589,7 +591,14 @@ class PhysVerbClassifier(nn.Module):
             verb_features['text'] = modalities_features_dict['text']
 
         if len(verb_features) > 0:
+            
+            #for k, v in verb_features.items():
+                #print()
+                #print(k)
+                #print(v.shape)
             adapted_verb_features = self.adaptors_dict['verb'](verb_features)
+            #print('Adapted:')
+            #print(adapted_verb_features.shape)
             output_dict['verb'] = self.classifiers_dict['verb'](adapted_verb_features)
 
         return output_dict
