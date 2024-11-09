@@ -89,7 +89,7 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'V-drop_noaggrds-fusion2L'
+    model_name = 'V-drop_noaggr-fusion2L-focalloss'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
         #'audio',
@@ -386,7 +386,7 @@ if __name__ == '__main__':
 
     #criterion = nn.CrossEntropyLoss()
 
-    '''
+    
     # вычисляем веса классов для физичекой и вербальной агрессии
     phys_aggr_filter = (train_time_interval_combinations_df['aggr_type'] == 'phys')
     verb_aggr_filter = (train_time_interval_combinations_df['aggr_type'] == 'verb')
@@ -395,8 +395,47 @@ if __name__ == '__main__':
     verb_aggr_df = train_time_interval_combinations_df[verb_aggr_filter]
     phys_verb_aggr_df = train_time_interval_combinations_df[phys_verb_agr_filter]
     all_phys_aggr_df = train_time_interval_combinations_df[phys_aggr_filter|phys_verb_agr_filter]
+    all_verb_aggr_df = train_time_interval_combinations_df[verb_aggr_filter|phys_verb_agr_filter]
+
+    verb_weights_series = 1-all_verb_aggr_df['verb_aggr_label'].value_counts()/len(all_verb_aggr_df)
+    phys_weights_series = 1-all_phys_aggr_df['phys_aggr_label'].value_counts()/len(all_phys_aggr_df)
+
+    verb_weights = torch.zeros([class_num], device=device)
+    phys_weights = torch.zeros([class_num], device=device)
+
+    verb_weights[0] = verb_weights_series['NOAGGR']
+    verb_weights[1] = verb_weights_series['AGGR']
+
+    phys_weights[0] = phys_weights_series['NOAGGR']
+    phys_weights[1] = phys_weights_series['AGGR']
+    '''
+    print('ALL VERB:')
+    print(verb_weights_series['AGGR'])
     print('ALL PHYS:')
-    print(all_phys_aggr_df['phys_aggr_label'].value_counts())
+    print(phys_weights_series['NOAGGR'])
+    '''
+
+    gamma_val = 2
+
+    phys_focal_loss = torch.hub.load(
+        'adeelh/pytorch-multi-class-focal-loss',
+        model='FocalLoss',
+        alpha=phys_weights,
+        gamma=gamma_val,
+        reduction='mean',
+        force_reload=False
+    )
+
+    verb_focal_loss = torch.hub.load(
+        'adeelh/pytorch-multi-class-focal-loss',
+        model='FocalLoss',
+        alpha=verb_weights,
+        gamma=gamma_val,
+        reduction='mean',
+        force_reload=False
+    )
+    
+    '''
     print('PHYS&VERB')
     print(phys_verb_aggr_df['phys_aggr_label'].value_counts())
     print('ONLY PHYS')
@@ -417,12 +456,14 @@ if __name__ == '__main__':
     print('ONLY PHYS')
     print(phys_aggr_df['phys_aggr_label'].value_counts())
     print()
-    exit()
     '''
-
-    criterion = MultiModalCrossEntropyLoss(modalities_list=aggr_types_list)
+    aggr_types_losses_dict = {
+        'phys': phys_focal_loss,
+        'verb': verb_focal_loss
+    }
+    aggr_types_losses_dict = {k: v for k, v in aggr_types_losses_dict.items() if k in aggr_types_list}
+    criterion = MultiModalCrossEntropyLoss(modalities_losses_dict=aggr_types_losses_dict)
     
-
     metrics_dict = {
         'loss': None,
         'accuracy': metrics.accuracy_score,
@@ -434,7 +475,7 @@ if __name__ == '__main__':
         'UAF1': {'metric': metrics.f1_score, 'kwargs': {'average': 'macro'}}
     }
 
-    metrics_to_dispaly = ['loss', 'accuracy', 'UAR', 'recall', 'precision', 'f1-score']
+    metrics_to_dispaly = ['loss', 'accuracy', 'UAR', 'UAP', 'UAF1', 'recall', 'precision', 'f1-score']
 
     if resume_training:
         trainer = torch.load(path_to_checkpoint)

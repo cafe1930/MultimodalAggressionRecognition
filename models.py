@@ -230,13 +230,14 @@ class LossesDict(dict):
             loss.backward(retain_graph=retain_graph)
 
 class MultiModalCrossEntropyLoss(nn.Module):
-    def __init__(self, modalities_list):
+    def __init__(self, modalities_losses_dict):
         super().__init__()
-        self.criterion = nn.CrossEntropyLoss()
-        self.modalities_list = modalities_list
+        self.criterion_dict = modalities_losses_dict
+        self.modalities_list = list(modalities_losses_dict.keys())
 
     def forward(self, output_dict, target):
         losses_dict = LossesDict()
+        #loss = 0
         for modality_names, modality_labels in target:
             batch_size = modality_labels.size(0)
             # шаблон - <modality_name>_EMPTY
@@ -253,10 +254,12 @@ class MultiModalCrossEntropyLoss(nn.Module):
                     #print(preds)
                     #print()
                     #print(labels)
-                    losses_dict[modality_name] = self.criterion(preds, labels)
+                    #loss += self.criterion_dict[modality_name](preds, labels)
+                    losses_dict[modality_name] = self.criterion_dict[modality_name](preds, labels)
         #print(losses_dict)
         #print(target)
 
+        #return loss
         return losses_dict
 
 class AudioCnn1DExtractorWrapper(nn.Module):
