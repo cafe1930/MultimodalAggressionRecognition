@@ -50,14 +50,14 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'/home/ubuntu/mikhail_u/DATASET_V0',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
-        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
+        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
         #r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
-        #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'V+T-fusion1L-focalloss'
+    model_name = 'V+T-1L+fusion1L-focalloss'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
         #'audio',
@@ -313,7 +313,7 @@ if __name__ == '__main__':
     modality_features_shapes_dict = {k:v for k,v in modality_features_shapes_dict.items() if k in modalities_list}
     modality_extractors_dict = {
         'audio':audio_extractor,
-        'text':nn.Sequential(),
+        'text':text_model,
         #'text':text_model,
         'video':video_extractor
         #'video':video_model
