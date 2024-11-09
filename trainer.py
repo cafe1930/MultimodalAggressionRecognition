@@ -341,8 +341,8 @@ class TorchSupervisedTrainer:
         '''
         Сохранение результатов обучения
         '''
-        self.training_log.to_csv(os.path.join(self.saving_dir, 'train_log_.csv'))
-        self.testing_log.to_csv(os.path.join(self.saving_dir, 'test_log_.csv'))
+        self.training_log.to_csv(os.path.join(self.saving_dir, 'train_log_.csv'), index=False)
+        self.testing_log.to_csv(os.path.join(self.saving_dir, 'test_log_.csv'), index=False)
 
     def update_datasets(self):
         '''
@@ -816,7 +816,7 @@ class RNN_trainer(TorchSupervisedTrainer):
         '''
         ПЕРЕПИСЫВАЕМАЯ ФУНКЦИЯ
         '''
-        model_names = list(result_dict.keys())
+        model_names = sorted(list(result_dict.keys()))
 
         
         metrics_df = pd.DataFrame(columns=model_names,index=self.metrics_to_display)
@@ -863,8 +863,8 @@ class RNN_trainer(TorchSupervisedTrainer):
         '''
         for name in self.training_log.keys():
             
-            self.training_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_train_log.csv'))
-            self.testing_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_test_log_.csv'))
+            self.training_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_train_log.csv'), index=False)
+            self.testing_log[name].to_csv(os.path.join(self.saving_dir, f'{name}_test_log_.csv'), index=False)
 
 class MultimodalTrainer(RNN_trainer):
 

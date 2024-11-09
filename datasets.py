@@ -631,12 +631,14 @@ class AggrBatchSampler(torch.utils.data.sampler.Sampler):
             aggr_type_indices = self.time_intervals_df[self.time_intervals_df['aggr_type']==aggr_type].index.tolist()
             if self.shuffle:
                 # перемешиваем индексы
+                random.seed(None)
                 random.shuffle(aggr_type_indices)
             # составляем пакеты индексов
             for i in range(0, len(aggr_type_indices), self.batch_size):
                 batch_indices_list.append(aggr_type_indices[i:i+self.batch_size])
         if self.shuffle:
             # еще раз перемешиваем, чтобы пакеты подавались в случайном порядке
+            random.seed(None)
             random.shuffle(batch_indices_list)
         return batch_indices_list
     

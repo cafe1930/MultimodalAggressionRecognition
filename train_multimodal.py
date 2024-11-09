@@ -89,11 +89,11 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'Video+Text Extr-0 Fus-2'
+    model_name = 'V-drop_noaggrds-fusion2L'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
         #'audio',
-        'text',
+        #'text',
         'video'
         ]
     aggr_types_list = set()
@@ -116,6 +116,9 @@ if __name__ == '__main__':
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         train_time_interval_combinations_df.append(df)
     train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
+    # попробуем убрать временные интервалы отсутствия физ. агрессии
+    drop_no_aggr_filter = (train_time_interval_combinations_df['aggr_type']=='phys')&(train_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
+    train_time_interval_combinations_df = train_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
     #train_time_interval_combinations_df = train_time_interval_combinations_df.loc[0:500]
 
@@ -124,6 +127,8 @@ if __name__ == '__main__':
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         test_time_interval_combinations_df.append(df)
     test_time_interval_combinations_df = pd.concat(test_time_interval_combinations_df, ignore_index=True)
+    drop_no_aggr_filter = (test_time_interval_combinations_df['aggr_type']=='phys')&(test_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
+    test_time_interval_combinations_df = test_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
     #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
     device = torch.device(f'cuda:{gpu_device_idx}')    
@@ -241,6 +246,8 @@ if __name__ == '__main__':
     #    pass
     
     #device = torch.device('cpu')
+
+    #torch.manual_seed(None)
     
     #audio_extractor = Wav2vec2Extractor(bundle.get_model())
     #audio_extractor = Wav2vecExtractor(torch.jit.load('wav2vec_feature_extractor_jit.pt'))
@@ -338,6 +345,9 @@ if __name__ == '__main__':
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
         class_num=2)
+    
+    #print(model.classifiers.classifiers_dict['phys'][3].weight)
+    #exit()
     '''
     modality_classifiers_dict = {
         'audio':OutputClassifier(768, 2),
@@ -375,6 +385,41 @@ if __name__ == '__main__':
     #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
     #criterion = nn.CrossEntropyLoss()
+
+    '''
+    # вычисляем веса классов для физичекой и вербальной агрессии
+    phys_aggr_filter = (train_time_interval_combinations_df['aggr_type'] == 'phys')
+    verb_aggr_filter = (train_time_interval_combinations_df['aggr_type'] == 'verb')
+    phys_verb_agr_filter = (train_time_interval_combinations_df['aggr_type'] == 'phys&verb')
+    phys_aggr_df = train_time_interval_combinations_df[phys_aggr_filter]
+    verb_aggr_df = train_time_interval_combinations_df[verb_aggr_filter]
+    phys_verb_aggr_df = train_time_interval_combinations_df[phys_verb_agr_filter]
+    all_phys_aggr_df = train_time_interval_combinations_df[phys_aggr_filter|phys_verb_agr_filter]
+    print('ALL PHYS:')
+    print(all_phys_aggr_df['phys_aggr_label'].value_counts())
+    print('PHYS&VERB')
+    print(phys_verb_aggr_df['phys_aggr_label'].value_counts())
+    print('ONLY PHYS')
+    print(phys_aggr_df['phys_aggr_label'].value_counts())
+    print()
+
+    phys_aggr_filter = (test_time_interval_combinations_df['aggr_type'] == 'phys')
+    verb_aggr_filter = (test_time_interval_combinations_df['aggr_type'] == 'verb')
+    phys_verb_agr_filter = (test_time_interval_combinations_df['aggr_type'] == 'phys&verb')
+    phys_aggr_df = test_time_interval_combinations_df[phys_aggr_filter]
+    verb_aggr_df = test_time_interval_combinations_df[verb_aggr_filter]
+    phys_verb_aggr_df = test_time_interval_combinations_df[phys_verb_agr_filter]
+    all_phys_aggr_df = test_time_interval_combinations_df[phys_aggr_filter|phys_verb_agr_filter]
+    print('ALL PHYS:')
+    print(all_phys_aggr_df['phys_aggr_label'].value_counts())
+    print('PHYS&VERB')
+    print(phys_verb_aggr_df['phys_aggr_label'].value_counts())
+    print('ONLY PHYS')
+    print(phys_aggr_df['phys_aggr_label'].value_counts())
+    print()
+    exit()
+    '''
+
     criterion = MultiModalCrossEntropyLoss(modalities_list=aggr_types_list)
     
 
@@ -385,6 +430,8 @@ if __name__ == '__main__':
         'recall':{'metric': metrics.recall_score, 'kwargs': {'average': None}},
         'f1-score':{'metric': metrics.f1_score, 'kwargs': {'average': None}},
         'UAR': {'metric': metrics.recall_score, 'kwargs': {'average': 'macro'}},
+        'UAP': {'metric': metrics.precision_score, 'kwargs': {'average': 'macro'}},
+        'UAF1': {'metric': metrics.f1_score, 'kwargs': {'average': 'macro'}}
     }
 
     metrics_to_dispaly = ['loss', 'accuracy', 'UAR', 'recall', 'precision', 'f1-score']
@@ -406,7 +453,6 @@ if __name__ == '__main__':
             checkpoint_criterion='UAR',
             device=device
             )
-
 
     #print(trainer.start_epoch)
     #exit()
