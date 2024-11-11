@@ -527,7 +527,7 @@ class AudioTextAdaptor(nn.Module):
                 nn.Dropout(p_dropout),)
         self.audio_text_adaptors_dict = nn.ModuleDict(audio_text_adaptors_dict)
 
-    def forward(self, audio_text_features_dict):
+    def forward(self, audio_text_features_dict, combination_type='concat'):
         # усредняем входные векторы признаков
         #audio_text_features_dict = {modality: features.mean(dim=1) for modality, features in audio_text_features_dict.items()}
         combined_modality = []
@@ -535,20 +535,29 @@ class AudioTextAdaptor(nn.Module):
             result = self.audio_text_adaptors_dict[modality_name](features).mean(dim=1)
             #print(modality_name)
             #print(result.shape)
+            #print(combined_modality)
+            #print(audio_text_features_dict.keys())
             combined_modality.append(result)
+            #print(combined_modality)
         # если мы на выход подаем усреденный вектор
         #combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
         # если мы на выход подаем векторы двух модальностей
         #print(combined_modality)
-        combined_modality = torch.cat(combined_modality, dim=1)#.mean(dim=1)
+        if combination_type == 'concat':
+            combined_modality = torch.cat(combined_modality, dim=1)#.mean(dim=1)
+        elif combination_type == 'sum':
+            combined_modality = torch.stack(combined_modality, dim=1).sum(dim=1)
+        elif combination_type == 'mean':
+            combined_modality = torch.stack(combined_modality, dim=1).mean(dim=1)
         return combined_modality
-
+    
 class PhysVerbClassifier(nn.Module):
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput=0.3):
         super().__init__()
         self.modalities_list = modalities_list
         self.class_num = class_num
+        self.verb_adaptor_out_dim = verb_adaptor_out_dim
         adaptors_dict = {}
         classifiers_dict = {}
         if 'video' in modalities_list:
@@ -559,18 +568,18 @@ class PhysVerbClassifier(nn.Module):
                 nn.Dropout(p_droput),
                 nn.Linear(256, class_num)
             )
-        verb_modalities_sizes = {}
+        self.verb_modalities_sizes = {}
         if 'audio' in modalities_list:
-            verb_modalities_sizes['audio_dim'] = input_audio_size
+            self.verb_modalities_sizes['audio_dim'] = input_audio_size
         if 'text' in modalities_list:
-            verb_modalities_sizes['text_dim'] = input_text_size
+            self.verb_modalities_sizes['text_dim'] = input_text_size
 
-        if len(verb_modalities_sizes) > 0:
-            adaptors_dict['verb'] = AudioTextAdaptor(target_dim=verb_adaptor_out_dim, **verb_modalities_sizes)
+        if len(self.verb_modalities_sizes) > 0:
+            adaptors_dict['verb'] = AudioTextAdaptor(target_dim=verb_adaptor_out_dim, **self.verb_modalities_sizes)
         
-        if len(verb_modalities_sizes) > 0:
+        if len(self.verb_modalities_sizes) > 0:
             classifiers_dict['verb'] = nn.Sequential(
-                nn.Linear(verb_adaptor_out_dim*len(verb_modalities_sizes), 256),
+                nn.Linear(verb_adaptor_out_dim*len(self.verb_modalities_sizes), 256),
                 nn.ReLU(),
                 nn.Dropout(0.3),
                 nn.Linear(256, class_num)
@@ -600,6 +609,56 @@ class PhysVerbClassifier(nn.Module):
             #print('Adapted:')
             #print(adapted_verb_features.shape)
             output_dict['verb'] = self.classifiers_dict['verb'](adapted_verb_features)
+
+        return output_dict
+    
+class PhysVerbClassifierAddFeatures(PhysVerbClassifier):
+    def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput=0.3):
+        super().__init__(modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput)
+        
+        if 'verb' in self.classifiers_dict:
+            self.classifiers_dict['verb'] = nn.Sequential(
+                nn.Linear(verb_adaptor_out_dim, 256),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, class_num)
+            )
+
+    def forward(self, modalities_features_dict):
+        #adapted_phys_features = None
+        #adapted_verb_features = None
+        output_dict = {}
+        adapted_features_list = []
+        if 'video' in modalities_features_dict:
+
+            video_features = modalities_features_dict['video']
+            
+            adapted_phys_features = self.adaptors_dict['phys'](video_features)
+            adapted_features_list.append(adapted_phys_features)
+            
+            #adapted_phys_features = torch.zeros()
+        verb_features = {}
+        if 'audio' in modalities_features_dict:
+            verb_features['audio'] = modalities_features_dict['audio']
+        if 'text' in modalities_features_dict:
+            verb_features['text'] = modalities_features_dict['text']
+
+        if len(verb_features) > 0:
+            
+            #for k, v in verb_features.items():
+                #print()
+                #print(k)
+                #print(v.shape)
+            
+            adapted_verb_features = self.adaptors_dict['verb'](verb_features, combination_type='sum')
+            #print('Adapted:')
+            #print(adapted_verb_features.shape)
+            adapted_features_list.append(adapted_verb_features)
+            #output_dict['verb'] = self.classifiers_dict['verb'](adapted_verb_features)
+        adapted_features_add = torch.stack(adapted_features_list, dim=1).sum(dim=1)
+        
+        output_dict['verb'] = self.classifiers_dict['verb'](adapted_features_add)
+        output_dict['phys'] = self.classifiers_dict['phys'](adapted_features_add)
 
         return output_dict
    
@@ -673,14 +732,15 @@ class CNN1D(nn.Module):
     def __init__(self, class_num):
         super().__init__()
         self.extractor = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
+            #nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
+            nn.Conv1d(1, 64, kernel_size=101, stride=30, padding=101//2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
 
             nn.MaxPool1d(4, 4),
             nn.Dropout1d(0.1),
             #################
-            nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
+            nn.Conv1d(64, 64, kernel_size=31, stride=10, padding=30//2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
@@ -753,10 +813,87 @@ class CNN1D(nn.Module):
 
         #return h#.permute(1, 2)#self.classifier(h)
 
+class CNN1D(nn.Module):
+    def __init__(self, class_num):
+        super().__init__()
+        self.extractor = nn.Sequential(
+            #nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
+            nn.Conv1d(1, 64, kernel_size=101, stride=30, padding=101//2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+
+            #nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(64, 64, kernel_size=31, stride=10, padding=30//2),
+            nn.BatchNorm1d(64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Conv1d(64, 64, kernel_size=3, padding=5//2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+
+            #nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(64, 128, kernel_size=3, stride=1, padding=5//2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Conv1d(128, 128, kernel_size=3, padding=5//2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            #nn.Conv1d(128, 128, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(128),
+            #nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+            nn.Conv1d(128, 256, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            #nn.Conv1d(256, 256, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(256),
+            #nn.ReLU(),
+
+            nn.MaxPool1d(4, 4),
+            nn.Dropout1d(0.1),
+            #################
+
+            nn.Conv1d(256, 512, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+
+            nn.Dropout1d(0.1),
+
+            #nn.Conv1d(512, 512, kernel_size=3, padding=3//2),
+            #nn.BatchNorm1d(512),
+            #nn.ReLU()
+            )
+
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool1d(1), # это, похоже, и есть Lambda
+            nn.Flatten(),
+            nn.Dropout1d(0.2),
+            nn.Linear(512, class_num)    
+        )
+
+    def forward(self, x):
+        
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+        h = self.extractor(x)
+        return h#self.classifier(h)
+
 if __name__ == '__main__':
-    #model = CNN1D(2)
+    model = CNN1D(2)
     #out = model(torch.randn(1, 80000))
     #print(out.shape)
-    model = nn.Linear(512, 256)
-    tensor = torch.randn(1, 2, 512)
+    tensor = torch.randn(1, 80000)
     print(model(tensor).shape)

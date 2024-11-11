@@ -27,7 +27,7 @@ from torchvision.transforms import v2
 
 from datasets import MultimodalPhysVerbDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
 from trainer import MultimodalTrainer
-from models import AveragedFeaturesTransformerFusion, PhysVerbClassifier, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
+from models import AveragedFeaturesTransformerFusion, PhysVerbClassifierAddFeatures, PhysVerbClassifier, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -50,15 +50,15 @@ if __name__ == '__main__':
     
     sample_args = [
         '--path_to_dataset',
-        r'/home/ubuntu/mikhail_u/DATASET_V0',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0',
-        #r'I:\AVABOS\DATSET_V0',
+        r'I:\AVABOS\DATSET_V0',
         '--path_to_intersections_csv',
-        r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
+        #r'/home/ubuntu/mikhail_u/DATASET_V0/time_intervals_combinations_table.csv',
         #r'/home/aggr/mikhail_u/DATA/DATSET_V0/time_intervals_combinations_table.csv',
         #r'C:\Users\admin\python_programming\DATA\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
-        #r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
+        r'i:\AVABOS\DATSET_V0\time_intervals_combinations_table.csv',
         '--path_to_train_test_split_json',
         r'train_test_split.json',
         '--gpu_device_idx', '0',
@@ -89,10 +89,12 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    model_name = 'FullDs_V+T+fusion1L-focalloss'
+    phys_gamma_val = 2
+    verb_gamma_val = 2
+    model_name = 'DEBUG'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        #'audio',
+        'audio',
         'text',
         'video'
         ]
@@ -115,7 +117,7 @@ if __name__ == '__main__':
     for cluster_id in combinations_indices_dict['train_clusters']:
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         train_time_interval_combinations_df.append(df)
-    train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
+    #train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
     # для выравнивания баланса классов (баланс смещен в сторону не агрессивного поведения)
     # удалим не агрессивные интервалы физ. поведения, которые не пересекаются с вербальным поведением
     #drop_no_aggr_filter = (train_time_interval_combinations_df['aggr_type']=='phys')&(train_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
@@ -133,7 +135,7 @@ if __name__ == '__main__':
     #drop_no_aggr_filter = (test_time_interval_combinations_df['aggr_type']=='phys')&(test_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
     #test_time_interval_combinations_df = test_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
-    #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
+    test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
     device = torch.device(f'cuda:{gpu_device_idx}')    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
@@ -313,6 +315,14 @@ if __name__ == '__main__':
         'text':list(text_features_shape)[1:],
         'video':list(video_features_shape)[1:]
     }
+
+    '''
+    print(f'video_Shape={torch.zeros([1, 3, video_frames_num, 112, 112]).shape}')
+    print(f'audio_Shape={torch.zeros([1, max_audio_len]).shape}')
+    print(f'text_Shape= {torch.zeros([1, max_embeddings_len, 768]).shape}')
+    print(modality_features_shapes_dict)
+    exit()
+    '''
     modality_features_shapes_dict = {k:v for k,v in modality_features_shapes_dict.items() if k in modalities_list}
     modality_extractors_dict = {
         'audio':audio_extractor,
@@ -335,7 +345,18 @@ if __name__ == '__main__':
     aggr_classifiers_dict = {k:v for k,v in aggr_classifiers_dict.items() if k in aggr_types_list}
     aggr_classifiers_dict = nn.ModuleDict(aggr_classifiers_dict)
     '''
+    
+    '''
     aggr_classifiers = PhysVerbClassifier(
+        modalities_list=modalities_list,
+        class_num=2,
+        input_audio_size=audio_features_shape[-1],
+        input_text_size=text_features_shape[-1],
+        input_video_size=video_features_shape[-1],
+        verb_adaptor_out_dim=768
+        )
+    '''
+    aggr_classifiers = PhysVerbClassifierAddFeatures(
         modalities_list=modalities_list,
         class_num=2,
         input_audio_size=audio_features_shape[-1],
@@ -345,7 +366,8 @@ if __name__ == '__main__':
         )
     model = PhysVerbModel(
         modality_extractors_dict=modality_extractors_dict,
-        modality_fusion_module=modality_fusion_module,
+        #modality_fusion_module=modality_fusion_module,
+        modality_fusion_module=nn.Sequential(),
         classifiers=aggr_classifiers,
         modality_features_shapes_dict=modality_features_shapes_dict,
         hidden_size=768,
@@ -420,13 +442,11 @@ if __name__ == '__main__':
     print(phys_weights_series['NOAGGR'])
     '''
 
-    gamma_val = 2
-
     phys_focal_loss = torch.hub.load(
         'adeelh/pytorch-multi-class-focal-loss',
         model='FocalLoss',
         alpha=phys_weights,
-        gamma=gamma_val,
+        gamma=phys_gamma_val,
         reduction='mean',
         force_reload=False
     )
@@ -435,7 +455,7 @@ if __name__ == '__main__':
         'adeelh/pytorch-multi-class-focal-loss',
         model='FocalLoss',
         alpha=verb_weights,
-        gamma=gamma_val,
+        gamma=verb_gamma_val,
         reduction='mean',
         force_reload=False
     )
@@ -443,8 +463,8 @@ if __name__ == '__main__':
     weighted_verb_cross_entropy_loss = nn.CrossEntropyLoss(verb_weights)
     weighted_phys_cross_entropy_loss = nn.CrossEntropyLoss(phys_weights)
 
-    verb_cross_entropy_loss = nn.CrossEntropyLoss(verb_weights)
-    phys_cross_entropy_loss = nn.CrossEntropyLoss(phys_weights)
+    verb_cross_entropy_loss = nn.CrossEntropyLoss()
+    phys_cross_entropy_loss = nn.CrossEntropyLoss()
     
     '''
     print('PHYS&VERB')
@@ -470,7 +490,7 @@ if __name__ == '__main__':
     '''
     aggr_types_losses_dict = {
         'phys': phys_focal_loss,
-        'verb': verb_focal_loss
+        'verb': verb_cross_entropy_loss
     }
     aggr_types_losses_dict = {k: v for k, v in aggr_types_losses_dict.items() if k in aggr_types_list}
     criterion = MultiModalCrossEntropyLoss(modalities_losses_dict=aggr_types_losses_dict)
