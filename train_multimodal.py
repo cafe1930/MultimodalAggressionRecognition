@@ -63,8 +63,8 @@ if __name__ == '__main__':
         r'train_test_split.json',
         '--gpu_device_idx', '0',
         '--class_num', '2',
-        '--epoch_num', '1',
-        '--batch_size', '32',
+        '--epoch_num', '100',
+        '--batch_size', '64',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -89,12 +89,12 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    phys_gamma_val = 2
+    phys_gamma_val = 1.5
     verb_gamma_val = 2
-    model_name = 'PhVfeatAdd_V(focal,g=2)+T(ce)'
+    model_name = 'PhVfeatAdd_V(focal,g=1.5)+T(ce)'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
-        'audio',
+        #'audio',
         'text',
         'video'
         ]
