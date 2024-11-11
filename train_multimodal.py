@@ -63,8 +63,8 @@ if __name__ == '__main__':
         r'train_test_split.json',
         '--gpu_device_idx', '0',
         '--class_num', '2',
-        '--epoch_num', '100',
-        '--batch_size', '64',
+        '--epoch_num', '1',
+        '--batch_size', '32',
         '--max_audio_len', '80000',
         '--max_embeddings_len', '48',
         '--video_frames_num', '128',
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     # имя модели соответствует имени экстрактора признаков
     phys_gamma_val = 2
     verb_gamma_val = 2
-    model_name = 'DEBUG'
+    model_name = 'PhVfeatAdd_V(focal,g=2)+T(ce)'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     modalities_list = [
         'audio',
@@ -117,7 +117,7 @@ if __name__ == '__main__':
     for cluster_id in combinations_indices_dict['train_clusters']:
         df = time_interval_combinations_df[time_interval_combinations_df['cluster_id']==cluster_id]
         train_time_interval_combinations_df.append(df)
-    #train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
+    train_time_interval_combinations_df = pd.concat(train_time_interval_combinations_df, ignore_index=True)
     # для выравнивания баланса классов (баланс смещен в сторону не агрессивного поведения)
     # удалим не агрессивные интервалы физ. поведения, которые не пересекаются с вербальным поведением
     #drop_no_aggr_filter = (train_time_interval_combinations_df['aggr_type']=='phys')&(train_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
