@@ -135,7 +135,7 @@ if __name__ == '__main__':
     #drop_no_aggr_filter = (test_time_interval_combinations_df['aggr_type']=='phys')&(test_time_interval_combinations_df['phys_aggr_label']=='NOAGGR')
     #test_time_interval_combinations_df = test_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
-    test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
+    #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
     device = torch.device(f'cuda:{gpu_device_idx}')    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
