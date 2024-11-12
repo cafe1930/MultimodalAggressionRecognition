@@ -428,6 +428,54 @@ class EqualSizedTransformerModalitiesFusion(nn.Module):
         #print(fused_features)
         #return fused_features, modality_features_bounds
         return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
+    
+class CrossModalFusion(nn.Module):
+    def __init__(self,
+                 fusion_transformer_layer_num,
+                 fusion_transformer_hidden_size,
+                 fusion_transformer_head_num):
+        super().__init__()
+        
+        transformer_layer_m1_to_m2 = nn.TransformerDecoderLayer(
+            d_model=fusion_transformer_hidden_size, nhead=fusion_transformer_head_num, batch_first=True,)
+        self.modality_fusion_m1_to_m2 = nn.TransformerDecoder(
+            transformer_layer_m1_to_m2,
+            num_layers=fusion_transformer_layer_num,
+            norm=nn.LayerNorm(fusion_transformer_hidden_size))
+        
+        transformer_layer_m2_to_m1 = nn.TransformerDecoderLayer(
+            d_model=fusion_transformer_hidden_size, nhead=fusion_transformer_head_num, batch_first=True,)
+        self.modality_fusion_m1_to_m2 = nn.TransformerDecoder(
+            transformer_layer_m1_to_m2,
+            num_layers=fusion_transformer_layer_num,
+            norm=nn.LayerNorm(fusion_transformer_hidden_size))
+        
+    def forward(self, modalities_features_dict):
+        
+        modality_features_bounds_dict = {}
+        prev_size = 0
+        modalities_features_list = []
+        sequence_lengths = []
+        for modality_name, data in modalities_features_dict.items():
+            #batch_size = data.size(1)
+            seq_len = data.size(1)
+            
+            sequence_lengths.append({modality_name:seq_len})
+            modality_features_bounds_dict[modality_name] = [prev_size, prev_size+seq_len]
+            modalities_features_list.append(data)
+            prev_size = prev_size+seq_len
+        concat_features = torch.cat(modalities_features_list, dim=1)
+        # если на вход поступил нулевой тензор, то это означает отсутствие модальности
+        zero_features = concat_features.sum(dim=2)
+        key_padding_mask = zero_features == 0
+
+        # генерируем маску
+        fused_features = self.modality_fusion_transformer(concat_features, src_key_padding_mask=key_padding_mask)
+        #fused_features = self.modality_fusion_transformer(concat_features)
+        #print(f'Fused features before:\t\t{fused_features.shape}, has NaN:{torch.isnan(fused_features).sum().item()>0}')
+        #print(fused_features)
+        #return fused_features, modality_features_bounds
+        return {modality_name:fused_features[:,b0:b1] for modality_name, (b0, b1) in modality_features_bounds_dict.items()}
 
 class AveragedFeaturesTransformerFusion(EqualSizedTransformerModalitiesFusion):
             
@@ -552,14 +600,17 @@ class AudioTextAdaptor(nn.Module):
         return combined_modality
     
 class PhysVerbClassifier(nn.Module):
-    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
-    def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput=0.3):
+    #modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    #modality2aggr = {'video':'verb', 'text':'verb', 'audio':'verb'}
+    def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, modality2aggr={'video':'verb', 'text':'verb', 'audio':'verb'}, p_droput=0.3):
         super().__init__()
         self.modalities_list = modalities_list
         self.class_num = class_num
         self.verb_adaptor_out_dim = verb_adaptor_out_dim
         adaptors_dict = {}
         classifiers_dict = {}
+        self.modality2aggr = modality2aggr
+
         if 'video' in modalities_list:
             adaptors_dict['phys'] = SequenceAverageFeatures(hidden_size=input_video_size)
             classifiers_dict['phys'] = nn.Sequential(
@@ -611,7 +662,114 @@ class PhysVerbClassifier(nn.Module):
             output_dict['verb'] = self.classifiers_dict['verb'](adapted_verb_features)
 
         return output_dict
+
+
+class PhysVerbClassifier(nn.Module):
+    #modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    #modality2aggr = {'video':'verb', 'text':'verb', 'audio':'verb'}
+    def __init__(self, modalities_list, class_num, modalities_adaptors_inout_sizes_dict, modality2aggr={'video':'phys', 'text':'verb', 'audio':'verb'}, p_droput=0.3):
+        super().__init__()
+        self.modalities_list = modalities_list
+        self.modalities_inout_sizes_dict = modalities_adaptors_inout_sizes_dict
+        self.class_num = class_num
+        self.modalities_adaptors_inout_sizes_dict = modalities_adaptors_inout_sizes_dict
+        self.modality2aggr = modality2aggr
+
+        adaptors_dict, aggr_types_classifier_in_dims_dict = self.prepare_adaptors(modalities_list, modalities_adaptors_inout_sizes_dict, p_droput)
+        
+        classifiers_dict = self.prepare_classifiers(aggr_types_classifier_in_dims_dict, p_droput, class_num)
+
+        self.classifiers_dict = nn.ModuleDict(classifiers_dict)
+        self.adaptors_dict = nn.ModuleDict(adaptors_dict)
+        #print('ADAPTORS_DICT')
+        #print(self.adaptors_dict)
     
+    def prepare_adaptors(self, modalities_list, modalities_adaptors_inout_sizes_dict, p_droput):
+        adaptors_dict = {}
+        aggr_types_classifier_in_dims_dict = {}
+        for modality in modalities_list:
+            in_features, out_features = modalities_adaptors_inout_sizes_dict[modality]
+            adaptors_dict[modality] = nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.Dropout(p_droput),
+                nn.ReLU(),
+                SequenceAverageFeatures(hidden_size=out_features)
+            )
+            corr_aggr_type = self.modality2aggr[modality]
+            try:
+                aggr_types_classifier_in_dims_dict[corr_aggr_type] += out_features
+            except:
+                aggr_types_classifier_in_dims_dict[corr_aggr_type] = out_features
+        
+        return adaptors_dict, aggr_types_classifier_in_dims_dict
+    
+    def prepare_classifiers(self, aggr_types_classifier_in_dims_dict, p_droput, class_num):
+        classifiers_dict = {}
+        for aggr_type, classifier_input_dim in aggr_types_classifier_in_dims_dict.items():
+
+            classifiers_dict[aggr_type] = nn.Sequential(
+                nn.Linear(classifier_input_dim, classifier_input_dim//3),
+                nn.ReLU(),
+                nn.Dropout(p_droput),
+                nn.Linear(classifier_input_dim//3, class_num)
+            )
+        return classifiers_dict
+
+    def forward(self, modalities_features_dict):
+        modalities_features_dict = dict(sorted(modalities_features_dict.items()))
+        adapted_features_dict = {}
+        for modality, features in modalities_features_dict.items():
+            aggr_type = self.modality2aggr[modality]
+            batch_size = features.size(0)
+            adapted_features = self.adaptors_dict[modality](features)
+            if aggr_type in adapted_features_dict:
+                adapted_features = torch.cat([adapted_features_dict[aggr_type], adapted_features], dim=1)
+                adapted_features_dict[aggr_type] = adapted_features
+            else:
+                adapted_features_dict[aggr_type] = adapted_features
+        
+        output_dict = {}
+        for aggr_type, features in adapted_features_dict.items():
+            output_dict[aggr_type] = self.classifiers_dict[aggr_type](features)
+
+        return output_dict
+
+class PhysVerbClassifierConcatFeatures(PhysVerbClassifier):
+    def prepare_adaptors(self, modalities_list, modalities_adaptors_inout_sizes_dict, p_droput):
+        adaptors_dict = {}
+        
+        for modality in modalities_list:
+            in_features, out_features = modalities_adaptors_inout_sizes_dict[modality]
+            adaptors_dict[modality] = nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.Dropout(p_droput),
+                nn.ReLU(),
+                SequenceAverageFeatures(hidden_size=out_features)
+            )
+        out_fetures_list = [v[1] for v in modalities_adaptors_inout_sizes_dict.values()]
+        aggr_types_classifier_in_dims_dict = {}
+        for aggr_type in self.modality2aggr.values():
+            aggr_types_classifier_in_dims_dict[aggr_type] = sum(out_fetures_list)
+        
+        return adaptors_dict, aggr_types_classifier_in_dims_dict
+    
+    def forward(self, modalities_features_dict):
+        modalities_features_dict = dict(sorted(modalities_features_dict.items()))
+        adapted_features_list = []
+        for modality, features in modalities_features_dict.items():
+            aggr_type = self.modality2aggr[modality]
+            batch_size = features.size(0)
+            adapted_features = self.adaptors_dict[modality](features)
+            adapted_features_list.append(adapted_features)
+        adapted_features = torch.cat(adapted_features_list, dim=1)
+        
+        output_dict = {}
+        for aggr_type in self.classifiers_dict:
+            output_dict[aggr_type] = self.classifiers_dict[aggr_type](adapted_features)
+
+        return output_dict
+        
+
 class PhysVerbClassifierAddFeatures(PhysVerbClassifier):
     def __init__(self, modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput=0.3):
         super().__init__(modalities_list, class_num, input_audio_size, input_text_size, input_video_size, verb_adaptor_out_dim, p_droput)
@@ -662,27 +820,68 @@ class PhysVerbClassifierAddFeatures(PhysVerbClassifier):
 
         return output_dict
    
-class PhysVerbModel(MultimodalModel):
-    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
-    
+class PhysVerbModel(nn.Module):
+    #modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+   
+    def __init__(self, modality_extractors_dict, modality_fusion_module, classifiers, modality_features_shapes_dict, modality2aggr, hidden_size, class_num):
+        super().__init__()
+        self.modality_extractors_dict = modality_extractors_dict
+        self.modality_features_shapes_dict = modality_features_shapes_dict
+        self.modality_fusion_module = modality_fusion_module#
+        self.classifiers = classifiers
+        self.modality2aggr = modality2aggr
+        #print('ХУЕПУТАЛО ЕБАНОЕ!')
+
+    def extract_features(self, input_data):
+        modalities_features_dict = {}
+        for modality_names, modality_batch in input_data:
+            batch_size = modality_batch.size(0)
+            # шаблон - <modality_name>_EMPTY; EMPTY означает, что модальность для выбранного экземпляра данных отсутствует
+            modality_name = modality_names[0].split('_')[0]
+            modality_names = [n.split('_')[-1] for n in modality_names]
+            
+            modality_names = np.array(modality_names)
+            # выполняем фильтрацию пакетов (batches) c пустыми модальностями
+            not_empty_tensors = modality_names!='EMPTY'
+            modality_names = modality_names[not_empty_tensors]
+            
+            # создаем заглушку из нулей, чтобы обеспечить многомодальное обучение в случае отсутствия модальности
+            modality_features_shape = self.modality_features_shapes_dict[modality_name]
+            modality_features_shape = [batch_size] + modality_features_shape
+            modality_features = torch.zeros(modality_features_shape, device=modality_batch.device)
+
+            if len(modality_names) > 0:
+                #modality_name = modality_names[0]
+                if modality_name in self.modality_extractors_dict:
+                    # выполняем извлечение признаков
+                    features = self.modality_extractors_dict[modality_name](modality_batch[not_empty_tensors])
+                    # ставим на места не пустых пакетов (batches) извлеченные признаки
+                    modality_features[not_empty_tensors] = features
+            modalities_features_dict[modality_name] = modality_features
+
+        # modlalities_features_dict = {'modality_name': modality_features_tensor}
+        return dict(sorted(modalities_features_dict.items())) 
+
     def forward(self, input_data):
         # извлечение признаков
         modalities_features_dict = self.extract_features(input_data)
-        #print(f'Extracted features:\t\t{modalities_features_dict["video"].shape}, has NaN: {torch.isnan(modalities_features_dict["video"]).sum().item()>0}')
-        #print(modalities_features_dict)
-
-        #modalities_names = list(modalities_features_dict.keys())
-        
         
         # выполняем слияние модальностей
-        fused_features_dict = self.modality_fusion_module(modalities_features_dict)
-        #print(f'Fused features after:\t\t{fused_features_dict["video"].shape}, has NaN: {torch.isnan(fused_features_dict["video"]).sum().item()>0}')
-        #print()
-        #print(fused_features_dict)
-        
-        out_res = self.classifiers(fused_features_dict)
-        return out_res
+        modalities_features_dict = self.modality_fusion_module(modalities_features_dict)
+        #return modalities_features_dict
+        # Выполнение классификации
+        '''
+        output_dict = {}
+        for aggr_type in self.classifiers:
+            output_dict[aggr_type] = self.classifiers[aggr_type](modalities_features_dict[aggr_type])
+        '''
+        output_dict = self.classifiers(modalities_features_dict)
+        return output_dict
+    
+    def get_output_names(self):
+        return list(self.classifiers.keys())
 
+    
     def get_output_names(self):
         return list(self.classifiers.classifiers_dict.keys())
 
@@ -732,15 +931,15 @@ class CNN1D(nn.Module):
     def __init__(self, class_num):
         super().__init__()
         self.extractor = nn.Sequential(
-            #nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
-            nn.Conv1d(1, 64, kernel_size=101, stride=30, padding=101//2),
+            nn.Conv1d(1, 64, kernel_size=160, stride=40, padding=160//2),
+            #nn.Conv1d(1, 64, kernel_size=101, stride=30, padding=101//2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
 
             nn.MaxPool1d(4, 4),
             nn.Dropout1d(0.1),
             #################
-            nn.Conv1d(64, 64, kernel_size=31, stride=10, padding=30//2),
+            nn.Conv1d(64, 64, kernel_size=3, stride=1, padding=3//2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Conv1d(64, 64, kernel_size=3, padding=3//2),
@@ -803,16 +1002,10 @@ class CNN1D(nn.Module):
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
         h = self.extractor(x)
+        #return h
         return self.classifier(h)
-        #return self.classifier(self.extractor(x))
-        if ret_type == 'features':
-            return h.permute(0, 2, 1)
-        elif ret_type == 'classifier':
-            return self.classifier(h)
-        #batch_size, hidden_size, features_num = h.shape
-
-        #return h#.permute(1, 2)#self.classifier(h)
-
+        
+'''
 class CNN1D(nn.Module):
     def __init__(self, class_num):
         super().__init__()
@@ -890,6 +1083,7 @@ class CNN1D(nn.Module):
             x = x.unsqueeze(1)
         h = self.extractor(x)
         return h#self.classifier(h)
+'''
 
 if __name__ == '__main__':
     model = CNN1D(2)

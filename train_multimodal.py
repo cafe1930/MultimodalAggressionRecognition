@@ -27,7 +27,7 @@ from torchvision.transforms import v2
 
 from datasets import MultimodalPhysVerbDataset, AggrBatchSampler, AppendZeroValues, MultimodalDataset
 from trainer import MultimodalTrainer
-from models import AveragedFeaturesTransformerFusion, PhysVerbClassifierAddFeatures, PhysVerbClassifier, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
+from models import PhysVerbClassifierConcatFeatures, AveragedFeaturesTransformerFusion, PhysVerbClassifierAddFeatures, PhysVerbClassifier, PhysVerbModel, TransformerSequenceProcessor, EqualSizedTransformerModalitiesFusion, MultimodalModel, CNN1D, Swin3d_T_extractor, OutputClassifier, MultiModalCrossEntropyLoss, Wav2vec2Extractor, Wav2vecExtractor, AudioCnn1DExtractorWrapper
 
 if __name__ == '__main__':
 
@@ -89,12 +89,13 @@ if __name__ == '__main__':
     gpu_device_idx = args.gpu_device_idx
 
     # имя модели соответствует имени экстрактора признаков
-    phys_gamma_val = 1.5
+    phys_gamma_val = 2
     verb_gamma_val = 2
-    model_name = 'PhVfeatAdd_V(focal,g=1.5)+T(ce)'
+    model_name = 'AudioPhysAggr_V(focal,g=2)A+T(ce)+fusion1L'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    #modality2aggr = {'video':'verb', 'text':'verb', 'audio':'phys'}
     modalities_list = [
-        #'audio',
+        'audio',
         'text',
         'video'
         ]
@@ -136,6 +137,7 @@ if __name__ == '__main__':
     #test_time_interval_combinations_df = test_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
     #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
+
     device = torch.device(f'cuda:{gpu_device_idx}')    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     bundle = torchaudio.pipelines.HUBERT_ASR_XLARGE
@@ -200,6 +202,7 @@ if __name__ == '__main__':
         time_intervals_df=train_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
+        modality2aggr=modality2aggr,
         actual_modalities_list=modalities_list,
         device=device,
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
@@ -208,13 +211,12 @@ if __name__ == '__main__':
         time_intervals_df=test_time_interval_combinations_df,
         path_to_dataset=path_to_dataset_root,
         modality_augmentation_dict=train_transforms_dict,
+        modality2aggr=modality2aggr,
         actual_modalities_list=modalities_list,
         device=device,
         text_embedding_type='ru_conversational_cased_L-12_H-768_A-12_pt_v1_tokens'
         )
-    
-    #print(train_dataset[50][0][0][1].shape)
-    #exit()
+
     
     train_batch_sampler = AggrBatchSampler(train_time_interval_combinations_df, batch_size=batch_size, shuffle=True)
     test_batch_sampler = AggrBatchSampler(test_time_interval_combinations_df, batch_size=batch_size, shuffle=False)
@@ -250,6 +252,7 @@ if __name__ == '__main__':
     '''
     #for data in tqdm(train_dataloader):
     #    pass
+    #exit()
     
     #device = torch.device('cpu')
 
@@ -346,6 +349,8 @@ if __name__ == '__main__':
     aggr_classifiers_dict = nn.ModuleDict(aggr_classifiers_dict)
     '''
     
+    #modalities_input_sizes_dict = {'video':video_features_shape[-1], 'audio':audio_features_shape[-1], 'text': text_features_shape[-1]}
+    
     '''
     aggr_classifiers = PhysVerbClassifier(
         modalities_list=modalities_list,
@@ -355,7 +360,6 @@ if __name__ == '__main__':
         input_video_size=video_features_shape[-1],
         verb_adaptor_out_dim=768
         )
-    '''
     aggr_classifiers = PhysVerbClassifierAddFeatures(
         modalities_list=modalities_list,
         class_num=2,
@@ -364,12 +368,21 @@ if __name__ == '__main__':
         input_video_size=video_features_shape[-1],
         verb_adaptor_out_dim=768
         )
+    '''
+    modalities_adaptors_inout_sizes_dict = {'video':[video_features_shape[-1], 768], 'audio':[audio_features_shape[-1], 768], 'text':[text_features_shape[-1], 768]}
+    aggr_classifiers = PhysVerbClassifierConcatFeatures(
+        modalities_list=modalities_list,
+        class_num=2,
+        modalities_adaptors_inout_sizes_dict=modalities_adaptors_inout_sizes_dict,
+        modality2aggr=modality2aggr
+        )
     model = PhysVerbModel(
         modality_extractors_dict=modality_extractors_dict,
-        #modality_fusion_module=modality_fusion_module,
-        modality_fusion_module=nn.Sequential(),
+        modality_fusion_module=modality_fusion_module,
+        #modality_fusion_module=nn.Sequential(),
         classifiers=aggr_classifiers,
         modality_features_shapes_dict=modality_features_shapes_dict,
+        modality2aggr=modality2aggr,
         hidden_size=768,
         class_num=2)
     
@@ -392,27 +405,29 @@ if __name__ == '__main__':
         hidden_size=768,
         class_num=2)
     '''
+    
     model.to(device)
-    '''
-    for data, labels in tqdm(train_dataloader):
-        break
-    ret = model(data)
-    print(ret)
-    exit()
-    '''
     optimizer = torch.optim.Adam(model.parameters())
+    
+    #for data, labels in tqdm(train_dataloader):
+    #    break
+    #ret = model(data)
+    #print('RET')
+    #print(ret)
+    #print('-------------------------')
+    #print('EXTRACTED FEATURES')
+    #print(ret[0])
+    #exit()
+    
+    
 
     #for data, labels in train_dataloader:
-    #    ret = model(data)
-    
+    #    break
+        
+    #ret = model(data)
     #print(ret)
     #print(labels)
     #exit()
-
-    #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-
-    #criterion = nn.CrossEntropyLoss()
-
     
     # вычисляем веса классов для физичекой и вербальной агрессии
     phys_aggr_filter = (train_time_interval_combinations_df['aggr_type'] == 'phys')

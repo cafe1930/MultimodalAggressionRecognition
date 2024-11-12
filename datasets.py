@@ -450,12 +450,14 @@ class MultimodalDataset(torch.utils.data.Dataset):
             actual_modalities_list,
             device,
             text_embedding_type,
+            modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'},
             video_shape=(1,3, 112, 112),
             audio_shape=(1,),
             text_shape=(1, 768)
             ):
         super().__init__()
         self.modality_augmentation_dict = modality_augmentation_dict
+        self.modality2aggr = modality2aggr
         self.path_to_dataset = path_to_dataset
         self.time_intervals_df = time_intervals_df
         self.actual_modalities_list = actual_modalities_list
@@ -588,7 +590,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         return tuple(output_data_list), tuple(output_labels_list)
        
 class MultimodalPhysVerbDataset(MultimodalDataset):
-    modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
+    #modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     def __getitem__(self, idx):
         output_data_tuple, output_labels_tuple = super().__getitem__(idx)
         output_labels_dict = {}
