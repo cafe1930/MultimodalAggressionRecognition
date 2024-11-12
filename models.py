@@ -746,7 +746,7 @@ class PhysVerbClassifierConcatFeatures(PhysVerbClassifier):
                 nn.ReLU(),
                 SequenceAverageFeatures(hidden_size=out_features)
             )
-        out_fetures_list = [v[1] for v in modalities_adaptors_inout_sizes_dict.values()]
+        out_fetures_list = [v[1] for k, v in modalities_adaptors_inout_sizes_dict.items() if k in modalities_list]
         aggr_types_classifier_in_dims_dict = {}
         for aggr_type in self.modality2aggr.values():
             aggr_types_classifier_in_dims_dict[aggr_type] = sum(out_fetures_list)

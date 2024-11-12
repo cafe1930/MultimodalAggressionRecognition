@@ -91,11 +91,11 @@ if __name__ == '__main__':
     # имя модели соответствует имени экстрактора признаков
     phys_gamma_val = 2
     verb_gamma_val = 2
-    model_name = 'AudioPhysAggr_V(focal,g=2)A+T(ce)+fusion1L'
+    model_name = 'V(focal,g=2)+T(ce)+fusion1L'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     #modality2aggr = {'video':'verb', 'text':'verb', 'audio':'phys'}
     modalities_list = [
-        'audio',
+        #'audio',
         'text',
         'video'
         ]
@@ -385,6 +385,7 @@ if __name__ == '__main__':
         modality2aggr=modality2aggr,
         hidden_size=768,
         class_num=2)
+    
     
     #print(model.classifiers.classifiers_dict['phys'][3].weight)
     #exit()
