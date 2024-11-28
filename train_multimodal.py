@@ -91,13 +91,13 @@ if __name__ == '__main__':
     # имя модели соответствует имени экстрактора признаков
     phys_gamma_val = 2
     verb_gamma_val = 2
-    model_name = 'V(focal,g=2)+T(ce)+fusion1L'
+    model_name = 'A+T(ce)+fusion1L'
     modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'}
     #modality2aggr = {'video':'verb', 'text':'verb', 'audio':'phys'}
     modalities_list = [
-        #'audio',
+        'audio',
         'text',
-        'video'
+        #'video'
         ]
     aggr_types_list = set()
     for m in modalities_list:
@@ -137,6 +137,39 @@ if __name__ == '__main__':
     #test_time_interval_combinations_df = test_time_interval_combinations_df[~drop_no_aggr_filter]
     # DEBUG
     #test_time_interval_combinations_df = test_time_interval_combinations_df.loc[0:500]
+    print('Train')
+    
+    train_phys = train_time_interval_combinations_df[
+        (train_time_interval_combinations_df['aggr_type']=='phys')|(train_time_interval_combinations_df['aggr_type']=='phys&verb')
+        ]
+    train_verb = train_time_interval_combinations_df[
+        (train_time_interval_combinations_df['aggr_type']=='verb')|(train_time_interval_combinations_df['aggr_type']=='phys&verb')
+        ]
+    print("phys")
+    print(len(train_phys))
+    print('aggr')
+    print(len(train_phys[train_phys['phys_aggr_label']=='AGGR']))
+    print("verb")
+    print(len(train_verb))
+    print('aggr')
+    print(len(train_verb[train_verb['verb_aggr_label']=='AGGR']))
+    print('--------------------------')
+    print('Test')
+    test_phys = test_time_interval_combinations_df[
+        (test_time_interval_combinations_df['aggr_type']=='phys')|(test_time_interval_combinations_df['aggr_type']=='phys&verb')
+        ]
+    test_verb = test_time_interval_combinations_df[
+        (test_time_interval_combinations_df['aggr_type']=='verb')|(test_time_interval_combinations_df['aggr_type']=='phys&verb')
+        ]
+    print("phys")
+    print(len(test_phys))
+    print('aggr')
+    print(len(test_phys[test_phys['phys_aggr_label']=='AGGR']))
+    print("verb")
+    print(len(test_verb))
+    print('aggr')
+    print(len(test_verb[test_verb['verb_aggr_label']=='AGGR']))
+    exit()
 
     device = torch.device(f'cuda:{gpu_device_idx}')    
     #bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
@@ -387,7 +420,7 @@ if __name__ == '__main__':
         class_num=2)
     
     
-    #print(model.classifiers.classifiers_dict['phys'][3].weight)
+    #print(model.classifiers.classifiers_dict)
     #exit()
     '''
     modality_classifiers_dict = {

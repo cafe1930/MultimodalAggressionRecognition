@@ -933,7 +933,9 @@ class MultimodalTrainer(RNN_trainer):
         models_cummulative_loss_dict = {}
         models_cunmulative_models_preds_dict = {}
         models_cummulative_true_dict = {}
-        
+        # DEBUG
+        #print(epoch_results_list)
+
         for batch_results in epoch_results_list:
             
             # обработка loss
@@ -976,10 +978,17 @@ class MultimodalTrainer(RNN_trainer):
         
         #log_results_dict['loss'] = models_cummulative_loss_dict
         #log_results_dict['loss'] = self.compute_epoch_loss()
+        
+        # DEBUG
+        print(models_cunmulative_models_preds_dict)
+        print(models_cummulative_true_dict)
 
         # compute metrics for all the models
 
         for model_name, pred in models_cunmulative_models_preds_dict.items():
+            # DEBUG
+            #print(models_cummulative_true_dict)
+
             true = models_cummulative_true_dict[model_name]
             for metric_name in self.metrics_dict.keys():
                 if metric_name.lower() != 'loss':

@@ -1089,5 +1089,15 @@ if __name__ == '__main__':
     model = CNN1D(2)
     #out = model(torch.randn(1, 80000))
     #print(out.shape)
-    tensor = torch.randn(1, 80000)
+    extractor = model.extractor
+    
+    tensor = torch.randn(1, 1, 80000)
+    for e in extractor:
+        name = str(e)
+        tensor = e(tensor)
+        print(e)
+        if 'Conv'in name:
+            
+            
+            print(tensor.shape)
     print(model(tensor).shape)
