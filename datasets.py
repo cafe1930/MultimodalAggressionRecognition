@@ -455,6 +455,21 @@ class MultimodalDataset(torch.utils.data.Dataset):
             audio_shape=(1,),
             text_shape=(1, 768)
             ):
+        '''
+        time_intervals_df - pandas dataframe с информацией о датасете
+            (поля: project_name;unique_person;video;person_name;gender;phys_t1;phys_t2;text;aggr_type;phys_aggr_label;video_id;person_id;cluster_id;verb_t1;verb_t2;verb_aggr_label)
+        path_to_dataset - путь до корневого каталога с данными
+        modality_augmentation_dict - словарь со структурой {'имя модальности': torchvision.transforms}
+        actual_modalities_list - список с именами используемых в обработке модальностей
+        device - вычислительное устройство
+        text_embedding_type - срока с именем типа векторных представлений слов (BERT, RoBERT и т.д.) для определения верного пути до них
+        modality2aggr = {'video':'phys', 'text':'verb', 'audio':'verb'} - словарь, содержащий отображение модальности на тип агрессии
+        video_shape=(1, 3, 112, 112) - размер кадра, обрабатываемого нейросетью
+        audio_shape=(1,) - размер аудиосиганала, обрабатываемого нейросетью 
+        text_shape=(1, 768) - размер векторных представлений слов, обрабатываемых нейронной сетью
+
+        '''
+        
         super().__init__()
         self.modality_augmentation_dict = modality_augmentation_dict
         self.modality2aggr = modality2aggr
